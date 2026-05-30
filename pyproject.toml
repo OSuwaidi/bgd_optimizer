@@ -1,0 +1,21 @@
+[project]
+name = "bgd"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "ipykernel>=7.2.0",
+    "lets-plot>=4.10.1",
+    "ruff>=0.15.15",
+    "torch>=2.12.0",
+    "torchvision>=0.27.0",
+]
+
+[dependency-groups]  # added via: "uv add --dev <pckg>"
+dev = [
+    "polars>=1.41.2",
+    "torchsummary>=1.5.1",
+    "tqdm>=4.67.3",
+    "wandb>=0.27.0",
+]
