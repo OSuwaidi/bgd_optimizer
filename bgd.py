@@ -1,7 +1,6 @@
-from typing import Callable
+from typing import Callable, Iterable, Any
 
 import torch
-import torch.nn as nn
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from torch.optim import Optimizer
 
@@ -25,8 +24,13 @@ class BGD(Optimizer):
     """
 
     def __init__(
-        self, params, lr: float = 0.3, beta: float = 0.9, weight_decay: float = 0.0
-    ):
+        self,
+        params: Iterable[torch.nn.Parameter],
+        lr: float = 0.3,
+        beta: float = 0.9,
+        weight_decay: float = 0.0,
+        eps: float = 1e-8,
+    ) -> None:
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if beta < 0.0:
@@ -34,104 +38,118 @@ class BGD(Optimizer):
         if weight_decay < 0.0:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
 
-        # TODO:
-        """
-        decay_params = []
-        no_decay_params = []
-        
-        for name, param in model.named_parameters():
-            if not param.requires_grad:
+        self._eps = eps
+
+        decay_params: list[torch.nn.Parameter] = []
+        decay_params_dims: int = 0
+
+        no_decay_params: list[torch.nn.Parameter] = []
+        no_decay_params_dims: int = 0
+
+        for p in params:
+            if not p.requires_grad:
                 continue
-            # Exclude biases and 1D normalization parameters
-            if "bias" in name or param.ndim == 1:
-                no_decay_params.append(param)
+            # Exclude biases and 1D normalization parameters from weight decay
+            if weight_decay == 0 or p.ndim == 1:
+                no_decay_params.append(p)
+                no_decay_params_dims += p.numel()
             else:
-                decay_params.append(param)
-                
+                decay_params.append(p)
+                decay_params_dims += p.numel()
+
+        device = p.device
+
+        prev_no_decay_params = torch.empty(no_decay_params_dims, device=device)
+        prev_no_decay_grad = torch.empty_like(prev_no_decay_params)
+
+        prev_decay_params = torch.empty(decay_params_dims, device=device)
+        prev_decay_grad = torch.empty_like(prev_decay_params)
+
         optim_groups = [
-            {"params": decay_params, "weight_decay": weight_decay},
-            {"params": no_decay_params, "weight_decay": 0.0}
+            {
+                "params": no_decay_params,
+                "prev_params": prev_no_decay_params,
+                "prev_grad": prev_no_decay_grad,
+                "weight_decay": 0.0,
+            }
         ]
-        """
+        if weight_decay != 0:
+            optim_groups.append(
+                {
+                    "params": decay_params,
+                    "prev_params": prev_decay_params,
+                    "prev_grad": prev_decay_grad,
+                    "weight_decay": weight_decay,
+                },
+            )
 
-        # Expose dict kwargs to schedulers via "param_groups"
-        defaults = dict(lr=lr, beta=beta, weight_decay=weight_decay)
-        super().__init__(params, defaults)
+        defaults = dict(lr=lr, beta=beta)
+        super().__init__(optim_groups, defaults)  # exposes "self.param_groups" attribute
 
-        self._params: list[nn.Parameter] = [
-            p for p in self.param_groups[0]["params"] if p.requires_grad
-        ]
-
-        # Flatten entire model:
-        with torch.no_grad():
-            self.P = parameters_to_vector(self._params)
-        self._prev_P: torch.Tensor = torch.empty_like(self.P)
-        self._v: torch.Tensor = torch.zeros_like(self.P)
-        self._G: torch.Tensor = torch.empty_like(self.P)
+        self.param_groups: list[dict[str, Any]]
 
     @torch.no_grad()
     def step(self, closure: Callable[[], float]) -> float:
         """
         Performs a single optimization step that involves two backward passes.
         Args:
-            closure (callable): A closure that re-evaluates the model
-                and returns the loss. REQUIRED for BGD.
+            closure (callable): A closure that evaluates the model, returns the loss, and performs backpropagation: REQUIRED for BGD.
         The closure should:
-          - compute the loss (forward)
-          - call `loss.backward()`
-          - return the loss as a float
+          - compute the loss (forward pass)
+          - call `loss.backward()` ==> populates `p.grad`
+          - return the loss as a Python float
         """
 
-        # 1. Initialization & Group Params
         self.zero_grad(set_to_none=True)
 
-        group = self.param_groups[0]
-        lr = group["lr"]
-        beta = group["beta"]
-        wd = group.get("weight_decay", 0.0)
-
         with torch.enable_grad():
-            loss = closure()
+            closure()  # first forward/backward pass
 
-        # --- Phase 1: Preliminary Update ---
-        # Capture current params and gradients
-        self._G.copy_(parameters_to_vector([p.grad for p in self._params]))
+        for group in self.param_groups:
+            params = group["params"]
+            lr = group["lr"]
+            beta = group["beta"]
+            wd = group["weight_decay"]
+
+            P = parameters_to_vector(params)
+            G = parameters_to_vector(params.grad)
+
+            if wd > 0.0:
+                G.add_(P, alpha=wd)  # coupled weight decay ==> regularized gradient
+
+            group["prev_params"].copy_(P)
+            group["prev_grad"].copy_(G)
+
+            vector_to_parameters(P.sub_(G, alpha=lr), params)  # update current model's params to proposed params
+
         self.zero_grad(set_to_none=True)
 
-        if wd > 0.0:
-            self.P.mul_(1.0 - lr * wd)
-
-        # Save previous position
-        self._prev_P.copy_(self.P)
-
-        # Update velocity (momentum)
-        self._v.mul_(beta).add_(self._G)
-
-        # Apply Preliminary Update
-        self.P.sub_(self._v, alpha=lr)
-
-        # Write flat params back to the model
-        vector_to_parameters(self.P, self._params)
-
-        # --- Phase 2: Lookahead (Second Forward/Backward) ---
         with torch.enable_grad():
-            closure()
+            loss = closure()  # second forward/backward pass
 
-        # --- Phase 3: Bounce Update ---
-        # Get new gradients at the updated position
-        self._G.copy_(parameters_to_vector([p.grad for p in self._params]))
+        for group in self.param_groups:
+            params = group["params"]
+            prev_params = group["prev_params"]
+            prev_grad = group["prev_grad"]
+            lr = group["lr"]
+            beta = group["beta"]
+            wd = group["weight_decay"]
 
-        # Check Bounce Condition (Dot product of Velocity and New Gradient)
-        if (self._v @ self._G) < 0.0:
-            # Bounce: Interpolate back towards previous position
-            w = self._G.abs_().sub_(self._v.abs_()).sigmoid_()
-            self.P.lerp_(self._prev_P, weight=w)
-            self._v.zero_()
+            P = parameters_to_vector(params)
+            G = parameters_to_vector(params.grad)
 
-        else:
-            # Continue Descent Based on Local Gradient
-            self.P.sub_(self._G, alpha=lr)
+            if wd > 0.0:
+                G.add_(P, alpha=wd)
 
-        # Final Write Back
-        vector_to_parameters(self.P, self._params)
+            if (prev_grad @ G) < 0.0:  # bounce condition on regularized gradients
+                num = (prev_grad @ prev_grad).add_(self._eps)
+                w = num.div_(num.add(G @ G).add_(self._eps))
+                vector_to_parameters(prev_params.lerp_(P, weight=w), params)
+            else:
+                if wd > 0.0:
+                    G.sub_(P, alpha=wd)
+                    prev_grad.sub_(prev_params, alpha=wd)
+
+                vector_to_parameters(prev_params.mul_(1 - lr * wd).sub_(G + prev_grad, alpha=lr / 2.0),params,)
+
         return loss
