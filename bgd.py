@@ -90,6 +90,7 @@ class BGD(Optimizer):
 
     @torch.no_grad()
     def step(self, closure: Callable[[], float]) -> float:
+        # TODO: maybe no need to store prev_params, you can reconstruct it using prev_grad and proposed params
         """
         Performs a single optimization step that involves two backward passes.
         Args:
@@ -112,7 +113,7 @@ class BGD(Optimizer):
             wd = group["weight_decay"]
 
             P = parameters_to_vector(params)
-            G = parameters_to_vector(params.grad)
+            G = parameters_to_vector([p.grad for p in params])
 
             if wd > 0.0:
                 G.add_(P, alpha=wd)  # coupled weight decay ==> regularized gradient
@@ -136,20 +137,20 @@ class BGD(Optimizer):
             wd = group["weight_decay"]
 
             P = parameters_to_vector(params)
-            G = parameters_to_vector(params.grad)
+            G = parameters_to_vector([p.grad for p in params])
 
             if wd > 0.0:
                 G.add_(P, alpha=wd)
 
             if (prev_grad @ G) < 0.0:  # bounce condition on regularized gradients
-                num = (prev_grad @ prev_grad).add_(self._eps)
-                w = num.div_(num.add(G @ G).add_(self._eps))
+                num = (prev_grad @ prev_grad).sqrt_().add_(self._eps)
+                w = num.div_(num.add((G @ G).sqrt_()).add_(self._eps))
                 vector_to_parameters(prev_params.lerp_(P, weight=w), params)
             else:
                 if wd > 0.0:
                     G.sub_(P, alpha=wd)
                     prev_grad.sub_(prev_params, alpha=wd)
 
-                vector_to_parameters(prev_params.mul_(1 - lr * wd).sub_(G + prev_grad, alpha=lr / 2.0),params,)
+                vector_to_parameters(prev_params.mul_(1. - lr * wd).sub_(G.add_(prev_grad), alpha=lr / 2.0),params,)
 
         return loss
