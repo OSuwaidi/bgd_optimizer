@@ -25,6 +25,8 @@ wheels/
 # IPython
 profile_default/
 ipython_config.py
+*.ipynb
+helper.py
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is

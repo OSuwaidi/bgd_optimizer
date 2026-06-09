@@ -130,8 +130,8 @@ class BGD(Optimizer):
 
         for group in self.param_groups:
             params = group["params"]
-            prev_params = group["prev_params"]
-            prev_grad = group["prev_grad"]
+            prev_P = group["prev_params"]
+            prev_G = group["prev_grad"]
             lr = group["lr"]
             beta = group["beta"]
             wd = group["weight_decay"]
@@ -142,15 +142,15 @@ class BGD(Optimizer):
             if wd > 0.0:
                 G.add_(P, alpha=wd)
 
-            if (prev_grad @ G) < 0.0:  # bounce condition on regularized gradients
-                num = (prev_grad @ prev_grad).sqrt_().add_(self._eps)
-                w = num.div_(num.add((G @ G).sqrt_()).add_(self._eps))
-                vector_to_parameters(prev_params.lerp_(P, weight=w), params)
+            if (prev_G @ G) < 0.0:  # bounce condition on regularized gradients
+                num = prev_G.abs_().add_(self._eps)
+                w = num.div_(num.add(G.abs_()).add_(self._eps))
+                vector_to_parameters(prev_P.lerp_(P, weight=w), params)
             else:
                 if wd > 0.0:
                     G.sub_(P, alpha=wd)
-                    prev_grad.sub_(prev_params, alpha=wd)
+                    prev_G.sub_(prev_P, alpha=wd)
 
-                vector_to_parameters(prev_params.mul_(1. - lr * wd).sub_(G.add_(prev_grad), alpha=lr / 2.0),params,)
+                vector_to_parameters(prev_P.mul_(1. - lr * wd).sub_(G.add_(prev_G), alpha=lr / 2.0),params,)
 
         return loss
