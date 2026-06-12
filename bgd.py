@@ -6,8 +6,8 @@ import torch
 from torch.optim import Optimizer
 
 
-def global_bounce(G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
-    return (G1 @ G2) < 0.0
+def global_bounce(G1: torch.Tensor, G2: torch.Tensor, tau: float) -> torch.Tensor:
+    return (G1 @ G2) < (-tau * G1.norm() * G2.norm())
 
 
 def per_coordinate_bounce(G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
@@ -79,6 +79,7 @@ class BGD(Optimizer):
             lr: float = 0.1,
             beta: float = 0.9,
             weight_decay: float = 0.0,
+            tau: float = 0.0,
             ) -> None:
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
@@ -86,6 +87,8 @@ class BGD(Optimizer):
             raise ValueError(f"Invalid beta value: {beta}")
         if weight_decay < 0.0:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+
+        self.tau = tau
 
         decay_params: list[torch.nn.Parameter] = []
         decay_params_dims: int = 0
@@ -258,7 +261,7 @@ class BGD(Optimizer):
                     new_P = self._interpolate(prev_P, prev_G, w, wd, lr, self._couple_gradient)
                 else:
                     if wd > 0.0:
-                        if self._couple_gradient:  # decouple the L2 penalty from gradients
+                        if self._couple_gradient:  # decouple/dergularize the L2 penalty from gradients
                             prev_G.sub_(prev_P, alpha=wd)
                             G.sub_(P, alpha=wd)
 
