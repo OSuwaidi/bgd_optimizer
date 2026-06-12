@@ -3,7 +3,6 @@ import warnings
 from typing import Callable, Iterable, Any
 
 import torch
-from torch.nn.utils import parameters_to_vector
 from torch.optim import Optimizer
 
 
@@ -12,12 +11,12 @@ def global_bounce(G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
 
 
 def per_coordinate_bounce(G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
-    return torch.eq(G1.mul(G2).sign_(), -1.0)
+    return (G1.mul(G2)) < 0.0
 
 
 def ratio_convex_weights(
-    G1: torch.Tensor, G2: torch.Tensor, eps: float = 1e-8
-) -> torch.Tensor:
+        G1: torch.Tensor, G2: torch.Tensor, eps: float = 1e-8,
+        ) -> torch.Tensor:
     numerator = G1.abs().add_(eps)
     return numerator.div_(G2.abs_().add_(numerator).add_(eps))
 
@@ -27,13 +26,13 @@ def sigmoid_convex_weights(G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
 
 
 def full_decay_interpolation(
-    P1: torch.Tensor,
-    G1: torch.Tensor,
-    weights: torch.Tensor,
-    wd: float,
-    lr: float,
-    coupled_gradient: bool,
-) -> torch.Tensor:
+        P1: torch.Tensor,
+        G1: torch.Tensor,
+        weights: torch.Tensor,
+        wd: float,
+        lr: float,
+        coupled_gradient: bool,
+        ) -> torch.Tensor:
     r"""
     Performs: :math:`\theta_{t+1} = (1 - \alpha \, \lambda) \theta_t - \alpha \, w \odot g_t`
     """
@@ -45,13 +44,13 @@ def full_decay_interpolation(
 
 
 def scaled_decay_interpolation(
-    P1: torch.Tensor,
-    G1: torch.Tensor,
-    weights: torch.Tensor,
-    wd: float,
-    lr: float,
-    coupled_gradient: bool,
-) -> torch.Tensor:
+        P1: torch.Tensor,
+        G1: torch.Tensor,
+        weights: torch.Tensor,
+        wd: float,
+        lr: float,
+        coupled_gradient: bool,
+        ) -> torch.Tensor:
     r"""
     Performs: :math:`\theta_{t+1} = (1 - \alpha \, \lambda w) \theta_t - \alpha \, w \odot g_t`
     """
@@ -64,24 +63,23 @@ def scaled_decay_interpolation(
 class BGD(Optimizer):
     # TODO: Visualize low-rank dynamics across layers during training
     # TODO: Deal with BN layers by temporarily disabling its running-stat updates during the first or second pass
-    # TODO: Incorporate momentum and use beta values
     r"""
     Implements BGD (Bouncing Gradient Descent) optimization algorithm.
     Args:
         params (iterable): iterable of parameters to optimize
         lr (float): base learning rate (default: 0.1)
-        beta (float): momentum factor (default: 0.9)
+        TODO beta (float): momentum factor (default: 0.9)
     """
 
     _couple_gradient = None
 
     def __init__(
-        self,
-        params: Iterable[torch.nn.Parameter],
-        lr: float = 0.1,
-        beta: float = 0.9,
-        weight_decay: float = 0.0,
-    ) -> None:
+            self,
+            params: Iterable[torch.nn.Parameter],
+            lr: float = 0.1,
+            beta: float = 0.9,
+            weight_decay: float = 0.0,
+            ) -> None:
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if beta < 0.0:
@@ -123,22 +121,22 @@ class BGD(Optimizer):
 
         if no_decay_params:
             optim_groups.append(
-                {
-                    "params": no_decay_params,
-                    "prev_params": prev_no_decay_params,
-                    "prev_grad": prev_no_decay_grad,
-                    "weight_decay": 0.0,
-                }
-            )
+                    {
+                        "params": no_decay_params,
+                        "prev_params": prev_no_decay_params,
+                        "prev_grad": prev_no_decay_grad,
+                        "weight_decay": 0.0,
+                        }
+                    )
         if decay_params:
             optim_groups.append(
-                {
-                    "params": decay_params,
-                    "prev_params": prev_decay_params,
-                    "prev_grad": prev_decay_grad,
-                    "weight_decay": weight_decay,
-                },
-            )
+                    {
+                        "params": decay_params,
+                        "prev_params": prev_decay_params,
+                        "prev_grad": prev_decay_grad,
+                        "weight_decay": weight_decay,
+                        },
+                    )
 
         defaults = dict(lr=lr, beta=beta)  # shared across all optim/param groups
         super().__init__(optim_groups, defaults)  # exposes "self.param_groups" attribute
@@ -146,26 +144,40 @@ class BGD(Optimizer):
         self.param_groups: list[dict[str, Any]]
 
     def _bounce_condition(
-        self, prev_G: torch.Tensor, probe_G: torch.Tensor
-    ) -> torch.Tensor:
+            self, prev_G: torch.Tensor, probe_G: torch.Tensor,
+            ) -> torch.Tensor:
         raise NotImplementedError
 
     def _get_convex_weights(
-        self, prev_G: torch.Tensor, probe_G: torch.Tensor
-    ) -> torch.Tensor:
+            self, prev_G: torch.Tensor, probe_G: torch.Tensor,
+            ) -> torch.Tensor:
         raise NotImplementedError
 
     def _interpolate(
-        self,
-        prev_P: torch.Tensor,
-        prev_G: torch.Tensor,
-        weights: torch.Tensor,
-        weight_decay: float,
-        learning_rate: float,
-        coupled_gradient: bool,
-    ) -> torch.Tensor:
+            self,
+            prev_P: torch.Tensor,
+            prev_G: torch.Tensor,
+            weights: torch.Tensor,
+            weight_decay: float,
+            learning_rate: float,
+            coupled_gradient: bool,
+            ) -> torch.Tensor:
         # Interpolation weights are assigned to the probe point, where w=0 ==> prev_params and w=1 ==> probe_params (w/ or w/o weight_decay)
         raise NotImplementedError
+
+    @staticmethod
+    def _params_to_vec(params: Iterable[torch.nn.Parameter]) -> torch.Tensor:
+        return torch.cat([p.view(-1) for p in params])
+
+    @staticmethod
+    def _param_grads_to_vec(params: Iterable[torch.nn.Parameter]) -> torch.Tensor:
+        return torch.cat(
+                [
+                    p.grad.view(-1) if p.grad is not None
+                    else torch.zeros_like(p).view(-1)
+                    for p in params
+                    ]
+                )
 
     @staticmethod
     def _assign_vec_to_params(vec: torch.Tensor, params: Iterable[torch.nn.Parameter]) -> None:
@@ -175,20 +187,10 @@ class BGD(Optimizer):
             param.copy_(vec[pointer: end].view_as(param))
             pointer = end
 
-    @staticmethod
-    def param_grads_to_vector(params: Iterable[torch.nn.Parameter]) -> torch.Tensor:
-        return torch.cat(
-            [
-                p.grad.view(-1) if p.grad is not None
-                else torch.zeros_like(p).view(-1)
-                for p in params
-            ]
-        )
-
     @torch.no_grad()
     def step(self, closure: Callable[[], float]) -> float:
-        # TODO: maybe no need to store "prev_params", you can reconstruct it using "prev_grad" and "probe params"
-        """
+        # TODO: maybe no need to store "prev_params" as we can reconstruct it using "prev_grad" and "probe params"
+        r"""
         Performs a single optimization step that involves two backward passes.
         Args:
             closure (callable): A callable that evaluates the model, returns the loss, and performs backpropagation: REQUIRED for BGD.
@@ -215,9 +217,9 @@ class BGD(Optimizer):
             lr = group["lr"]
             wd = group["weight_decay"]
 
-            P = parameters_to_vector(params)
+            P = self._params_to_vec(params)
             group["prev_params"].copy_(P)
-            G = self.param_grads_to_vector(params)
+            G = self._param_grads_to_vec(params)
 
             if wd > 0.0:
                 if self._couple_gradient:
@@ -240,8 +242,8 @@ class BGD(Optimizer):
             lr = group["lr"]
             wd = group["weight_decay"]
 
-            P = parameters_to_vector(params)
-            G = self.param_grads_to_vector(params)
+            P = self._params_to_vec(params)
+            G = self._param_grads_to_vec(params)
 
             if wd > 0.0:
                 if self._couple_gradient:
@@ -269,13 +271,13 @@ class BGD(Optimizer):
                 w = self._get_convex_weights(prev_G[bounce_cond], G[bounce_cond])
                 new_P = torch.empty_like(P)
                 new_P[bounce_cond] = self._interpolate(
-                    prev_P[bounce_cond],
-                    prev_G[bounce_cond],
-                    w,
-                    wd,
-                    lr,
-                    self._couple_gradient,
-                )
+                        prev_P[bounce_cond],
+                        prev_G[bounce_cond],
+                        w,
+                        wd,
+                        lr,
+                        self._couple_gradient,
+                        )
 
                 # Non-bouncing coordinates
                 non_bounce = ~bounce_cond

@@ -16,4 +16,5 @@ dev = [
     "polars>=1.41.2",
     "torchsummary>=1.5.1",
     "tqdm>=4.67.3",
+    "wandb>=0.27.2",
 ]
