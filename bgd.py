@@ -308,3 +308,11 @@ class DGRS(BGD):
     _bounce_condition = global_bounce  # G
     _get_convex_weights = ratio_convex_weights  # R
     _interpolate = scaled_decay_interpolation  # S
+
+
+
+class CGRS(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = scaled_decay_interpolation  # S
