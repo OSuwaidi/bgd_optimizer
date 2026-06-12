@@ -6,26 +6,28 @@ import torch
 from torch.optim import Optimizer
 
 
-def global_bounce(G1: torch.Tensor, G2: torch.Tensor, tau: float) -> torch.Tensor:
+def global_bounce(self, G1: torch.Tensor, G2: torch.Tensor, tau: float) -> torch.Tensor:
     return (G1 @ G2) < (-tau * G1.norm() * G2.norm())
 
 
-def per_coordinate_bounce(G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
+def per_coordinate_bounce(self, G1: torch.Tensor, G2: torch.Tensor, tau: float) -> torch.Tensor:
     return (G1.mul(G2)) < 0.0
 
 
 def ratio_convex_weights(
+        self,
         G1: torch.Tensor, G2: torch.Tensor, eps: float = 1e-8,
         ) -> torch.Tensor:
     numerator = G1.abs().add_(eps)
     return numerator.div_(G2.abs_().add_(numerator).add_(eps))
 
 
-def sigmoid_convex_weights(G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
+def sigmoid_convex_weights(self, G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
     return G1.abs().sub_(G2.abs_()).sigmoid_()
 
 
 def full_decay_interpolation(
+        self,
         P1: torch.Tensor,
         G1: torch.Tensor,
         weights: torch.Tensor,
@@ -44,6 +46,7 @@ def full_decay_interpolation(
 
 
 def scaled_decay_interpolation(
+        self,
         P1: torch.Tensor,
         G1: torch.Tensor,
         weights: torch.Tensor,
@@ -147,7 +150,7 @@ class BGD(Optimizer):
         self.param_groups: list[dict[str, Any]]
 
     def _bounce_condition(
-            self, prev_G: torch.Tensor, probe_G: torch.Tensor,
+            self, prev_G: torch.Tensor, probe_G: torch.Tensor, tau: float
             ) -> torch.Tensor:
         raise NotImplementedError
 
@@ -252,7 +255,7 @@ class BGD(Optimizer):
                 if self._couple_gradient:
                     G.add_(P, alpha=wd)
 
-            bounce_cond = self._bounce_condition(prev_G, G)
+            bounce_cond = self._bounce_condition(prev_G, G, self.tau)
 
             if bounce_cond.ndim == 0:
                 # Global bounce condition branch
@@ -298,3 +301,10 @@ class BGD(Optimizer):
             self._assign_vec_to_params(new_P, params)
 
         return loss
+
+
+class DGRS(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = scaled_decay_interpolation  # S
