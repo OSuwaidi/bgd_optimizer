@@ -316,3 +316,110 @@ class CGRS(BGD):
     _bounce_condition = global_bounce  # G
     _get_convex_weights = ratio_convex_weights  # R
     _interpolate = scaled_decay_interpolation  # S
+
+
+# Naming: <coupling><bounce><weights><interp>
+#   coupling: C = coupled,  D = decoupled
+#   bounce:   G = global,   P = per-coordinate
+#   weights:  R = ratio,    S = sigmoid
+#   interp:   F = full-decay, S = scaled-decay
+# Slot order is fixed, so the trailing two letters (weights, interp) are
+# unambiguous even when both are "S" (e.g. ...SS = sigmoid weights + scaled decay).
+
+
+class DGRF(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = full_decay_interpolation  # F
+
+
+class CGRF(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = full_decay_interpolation  # F
+
+
+class DGSS(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = scaled_decay_interpolation  # S
+
+
+class CGSS(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = scaled_decay_interpolation  # S
+
+
+class DGSF(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = full_decay_interpolation  # F
+
+
+class CGSF(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = global_bounce  # G
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = full_decay_interpolation  # F
+
+
+class DPRS(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = scaled_decay_interpolation  # S
+
+
+class CPRS(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = scaled_decay_interpolation  # S
+
+
+class DPRF(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = full_decay_interpolation  # F
+
+
+class CPRF(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = ratio_convex_weights  # R
+    _interpolate = full_decay_interpolation  # F
+
+
+class DPSS(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = scaled_decay_interpolation  # S
+
+
+class CPSS(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = scaled_decay_interpolation  # S
+
+
+class DPSF(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = full_decay_interpolation  # F
+
+
+class CPSF(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = per_coordinate_bounce  # P
+    _get_convex_weights = sigmoid_convex_weights  # S
+    _interpolate = full_decay_interpolation  # F
