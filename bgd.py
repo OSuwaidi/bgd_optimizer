@@ -90,6 +90,8 @@ class BGD(Optimizer):
             raise ValueError(f"Invalid beta value: {beta}")
         if weight_decay < 0.0:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+        if tau < 0.0:
+            raise ValueError(f"Invalid tau value: {tau}")
 
         self.tau = tau
 
