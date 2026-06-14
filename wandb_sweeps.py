@@ -2,6 +2,8 @@ import wandb
 from bgd import BGD_VARIANTS
 from tuner import main, PROJECT_NAME
 
+# To run: $ CUDA_VISIBLE_DEVICES=0 uv run wandb_sweeps.py --datadir <path_to_data-dir> &
+
 variant_names: list[str] = [bgd_var.__name__ for bgd_var in BGD_VARIANTS]
 SEEDS = (77, 433, 1024)
 LRs = (0.03, 0.05, 0.1, 0.2, 0.3, 0.5)

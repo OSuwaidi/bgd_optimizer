@@ -17,8 +17,6 @@ from torchvision.transforms import v2
 import wandb
 from bgd import BGD_VARIANTS, BGD
 
-# To run: $ CUDA_VISIBLE_DEVICES=0 uv run wandb_sweeps.py --datadir <path_to_data-dir> &
-
 # -------------------------
 # Config
 # -------------------------
@@ -59,7 +57,7 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
     best_val_epoch = 0
 
     print(f"Starting training on GPU: {next(model.parameters()).get_device()}")
-    for epoch in trange(1, epochs+1):
+    for epoch in trange(1, epochs + 1, desc="Training", unit="epoch", leave=True):
         model.train()
         epoch_loss = 0.0
         n_samples = 0
