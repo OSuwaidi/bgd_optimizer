@@ -305,6 +305,14 @@ class BGD(Optimizer):
         return loss
 
 
+# Naming: <coupling><bounce><weights><interp>
+#   coupling: C = coupled,  D = decoupled
+#   bounce:   G = global,   P = per-coordinate
+#   weights:  R = ratio,    S = sigmoid
+#   interp:   F = full-decay, S = scaled-decay
+# Slot order is fixed
+
+
 class DGRS(BGD):
     _couple_gradient = False  # D
     _bounce_condition = global_bounce  # G
@@ -318,15 +326,6 @@ class CGRS(BGD):
     _bounce_condition = global_bounce  # G
     _get_convex_weights = ratio_convex_weights  # R
     _interpolate = scaled_decay_interpolation  # S
-
-
-# Naming: <coupling><bounce><weights><interp>
-#   coupling: C = coupled,  D = decoupled
-#   bounce:   G = global,   P = per-coordinate
-#   weights:  R = ratio,    S = sigmoid
-#   interp:   F = full-decay, S = scaled-decay
-# Slot order is fixed, so the trailing two letters (weights, interp) are
-# unambiguous even when both are "S" (e.g. ...SS = sigmoid weights + scaled decay).
 
 
 class DGRF(BGD):

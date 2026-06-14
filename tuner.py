@@ -15,12 +15,50 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from torchvision.transforms import v2
 import wandb
+from bgd import (
+    BGD,
+    CGRS,
+    DGRS,
+    DGRF,
+    CGRF,
+    DGSS,
+    CGSS,
+    DGSF,
+    CGSF,
+    DPRS,
+    CPRS,
+    DPRF,
+    CPRF,
+    DPSS,
+    CPSS,
+    DPSF,
+    CPSF,
+)
+
 
 # To run: $ CUDA_VISIBLE_DEVICES=0 uv run tuner.py &
 
 # -------------------------
 # Config
 # -------------------------
+BGD_VARIANTS = (
+    DGRS,
+    CGRS,
+    DGRF,
+    CGRF,
+    DGSS,
+    CGSS,
+    DGSF,
+    CGSF,
+    DPRS,
+    CPRS,
+    DPRF,
+    CPRF,
+    DPSS,
+    CPSS,
+    DPSF,
+    CPSF,
+)
 DEVICE = "cuda"
 MODEL_NAME = "resnet50"
 BS = 256
@@ -28,6 +66,7 @@ WD = 1e-3
 EPOCHS = 100
 WARMUP_EPOCHS = 5
 NUM_WORKERS = cpu_count() // 2
+NAME_2_VARIANT: dict[str, type[BGD]] = {bgd_var.__name__: bgd_var for bgd_var in BGD_VARIANTS}
 
 
 def set_seed(seed):
@@ -163,12 +202,11 @@ def main(data_dir: str):
             )
 
     config = run.config
-    bgd_var = config.variant
+    bgd_var: str = config.variant
     lr = config.lr
     seed = config.seed
 
     run.name = f"{bgd_var}_{lr}_{seed}_{MODEL_NAME}"
-    run.group = f"{bgd_var}_{MODEL_NAME}"
 
     set_seed(seed)
 
@@ -192,7 +230,7 @@ def main(data_dir: str):
 
     val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False)
 
-    optimizer = bgd_var(model.parameters(), lr=lr, weight_decay=WD)
+    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=WD)
 
     # steps_per_epoch = len(train_loader)
     # total_steps = steps_per_epoch * EPOCHS
