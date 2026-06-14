@@ -25,8 +25,12 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=str, default="./data")
+    parser.add_argument("--data_dir", type=str, default="./data")
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
     args = parser.parse_args()
+    args_dict = vars(args)
 
     # 2. Initialize the sweep on W&B servers
     sweep_id = wandb.sweep(
@@ -37,6 +41,6 @@ if __name__ == "__main__":
 
     wandb.agent(
         sweep_id=sweep_id,
-        function=lambda: main(data_dir=args.data_dir),
+        function=lambda: main(**args_dict),
         project=PROJECT_NAME,
     )

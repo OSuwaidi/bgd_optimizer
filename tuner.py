@@ -25,9 +25,6 @@ from bgd import BGD_VARIANTS, BGD
 PROJECT_NAME = "bgd-tune-cifar10"
 DEVICE = "cuda"
 MODEL_NAME = "resnet50"
-BS = 256
-WD = 1e-3
-EPOCHS = 100
 WARMUP_EPOCHS = 5
 NUM_WORKERS = cpu_count() // 2
 NAME_2_VARIANT: dict[str, type[BGD]] = {bgd_var.__name__: bgd_var for bgd_var in BGD_VARIANTS}
@@ -124,7 +121,7 @@ class TransformDataset(Dataset):
         return self.T(x), y
 
 
-def main(data_dir: str):
+def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
     train_transform = v2.Compose(
         [
             v2.PILToTensor(),
@@ -161,7 +158,7 @@ def main(data_dir: str):
         transform=eval_transform,
     )
     test_loader = DataLoader(
-        test_ds, batch_size=BS, shuffle=False, num_workers=0, persistent_workers=False
+        test_ds, batch_size=batch_size, shuffle=False, num_workers=0, persistent_workers=False
     )
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
@@ -170,9 +167,9 @@ def main(data_dir: str):
         job_type="train",
         config=dict(
             model=MODEL_NAME,
-            epochs=EPOCHS,
-            batch_size=BS,
-            weight_decay=WD,
+            epochs=epochs,
+            batch_size=batch_size,
+            weight_decay=weight_decay,
         ),
     )
 
@@ -195,7 +192,7 @@ def main(data_dir: str):
     train_ds, val_ds = TransformDataset(train_ds, train_transform), TransformDataset(val_ds, eval_transform)
 
     train_loader = DataLoader(train_ds,
-                              batch_size=BS,
+                              batch_size=batch_size,
                               shuffle=True,
                               num_workers=NUM_WORKERS,  # torch pickles "worker_init_fn" + dataset + all its transforms and sends serialized copy to each worker
                               persistent_workers=NUM_WORKERS > 0,
@@ -205,10 +202,10 @@ def main(data_dir: str):
 
     val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False)
 
-    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=WD)
+    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay)
 
     # steps_per_epoch = len(train_loader)
-    # total_steps = steps_per_epoch * EPOCHS
+    # total_steps = steps_per_epoch * epochs
     # warmup_steps = steps_per_epoch * WARMUP_EPOCHS
 
     # warmup_scheduler = LinearLR(
@@ -231,7 +228,7 @@ def main(data_dir: str):
     #     milestones=[warmup_steps]
     # )
 
-    best_model = train_val(model, optimizer, EPOCHS, train_loader, val_loader, run)
+    best_model = train_val(model, optimizer, epochs, train_loader, val_loader, run)
 
     ckpt_path = Path(run.dir) / "best_model.pt"
     torch.save(
