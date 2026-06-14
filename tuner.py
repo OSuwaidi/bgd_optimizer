@@ -17,7 +17,7 @@ from torchvision.transforms import v2
 import wandb
 from bgd import BGD_VARIANTS, BGD
 
-# To run: $ CUDA_VISIBLE_DEVICES=0 uv run tuner.py &
+# To run: $ CUDA_VISIBLE_DEVICES=0 uv run wandb_sweeps.py --datadir <path_to_data-dir> &
 
 # -------------------------
 # Config
@@ -79,7 +79,7 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            best_train_loss = epoch_loss
+            best_train_loss = epoch_loss/n_samples
             best_model = deepcopy(model.state_dict())
             best_val_epoch = epoch
 
@@ -111,6 +111,19 @@ def eval_model(model, eval_loader) -> float:
     return acc
 
 
+class TransformDataset(Dataset):
+    def __init__(self, dataset, transforms):
+        self.dataset = dataset
+        self.T = transforms
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        x, y = self.dataset[idx]
+        return self.T(x), y
+
+
 def main(data_dir: str):
     train_transform = v2.Compose(
         [
@@ -131,18 +144,6 @@ def main(data_dir: str):
             v2.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
         ]
     )
-
-    class TransformDataset(Dataset):
-        def __init__(self, dataset, transforms):
-            self.dataset = dataset
-            self.T = transforms
-
-        def __len__(self):
-            return len(self.dataset)
-
-        def __getitem__(self, idx):
-            x, y = self.dataset[idx]
-            return self.T(x), y
 
     raw_ds = datasets.CIFAR10(
         root=data_dir,
@@ -196,7 +197,7 @@ def main(data_dir: str):
     train_loader = DataLoader(train_ds,
                               batch_size=BS,
                               shuffle=True,
-                              num_workers=NUM_WORKERS,  # torch pickles "init_fn" + dataset and all its transforms and sends serialized copy to each worker
+                              num_workers=NUM_WORKERS,  # torch pickles "worker_init_fn" + dataset + all its transforms and sends serialized copy to each worker
                               persistent_workers=NUM_WORKERS > 0,
                               drop_last=False,
                               worker_init_fn=set_worker_seed,

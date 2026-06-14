@@ -7,6 +7,7 @@ from torch.optim import Optimizer
 
 
 def global_bounce(self, G1: torch.Tensor, G2: torch.Tensor, tau: float) -> torch.Tensor:
+    # "Global" per optimizer param group (not fully model-global)
     return (G1 @ G2) < (-tau * G1.norm() * G2.norm())
 
 
