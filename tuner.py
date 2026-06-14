@@ -226,15 +226,6 @@ def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
 
     best_model = train_val(model, optimizer, epochs, train_loader, val_loader, run)
 
-    ckpt_path = Path(run.dir) / "best_model.pt"
-    torch.save(
-        {
-            "model_state_dict": best_model,
-            "config": dict(config),
-        },
-        ckpt_path,
-    )
-
     artifact = wandb.Artifact(
         name=f"{run.id}-best-model",
         type="model",
@@ -245,7 +236,15 @@ def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
         },
     )
 
-    artifact.add_file(str(ckpt_path))
+    with artifact.new_file("best_model.pt", mode="wb") as f:
+        torch.save(
+                {
+                    "model_state_dict": best_model,
+                    "config": dict(config),
+                    },
+                f,
+                )
+
     run.log_artifact(artifact, aliases=["best"])
 
     model.load_state_dict(best_model)
