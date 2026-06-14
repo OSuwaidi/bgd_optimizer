@@ -1,50 +1,19 @@
 import wandb
+from bgd import BGD_VARIANTS
+from tuner import main
 
-from bgd import (
-    CGRS,
-    DGRS,
-    DGRF,
-    CGRF,
-    DGSS,
-    CGSS,
-    DGSF,
-    CGSF,
-    DPRS,
-    CPRS,
-    DPRF,
-    CPRF,
-    DPSS,
-    CPSS,
-    DPSF,
-    CPSF,
-)
-
-BGD_VARIANTS = (
-    DGRS,
-    CGRS,
-    DGRF,
-    CGRF,
-    DGSS,
-    CGSS,
-    DGSF,
-    CGSF,
-    DPRS,
-    CPRS,
-    DPRF,
-    CPRF,
-    DPSS,
-    CPSS,
-    DPSF,
-    CPSF,
-)
-
-variant_names = [bgd_var.__name__ for bgd_var in BGD_VARIANTS]
+variant_names: list[str] = [bgd_var.__name__ for bgd_var in BGD_VARIANTS]
 SEEDS = (77, 433, 1024)
 LRs = (0.03, 0.05, 0.1, 0.2, 0.3, 0.5)
 
 # 1. Define the sweep configuration
 sweep_configuration = {
+    "name": "bgd-resnet50-cifar10",
     "method": "grid",  # 'grid' tries every combination. Use 'bayes' or 'random' for large searches.
+    "metric": {
+        "name": "test_acc",
+        "goal": "maximize",
+    },
     "parameters": {
         "variant": {"values": variant_names},
         "lr": {"values": LRs},
@@ -52,6 +21,21 @@ sweep_configuration = {
     },
 }
 
-# 2. Initialize the sweep on W&B servers
-# This returns a unique sweep_id
-sweep_id = wandb.sweep(sweep=sweep_configuration, project="bgd-tune-cifar10")
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", type=str, default="./data")
+    args = parser.parse_args()
+
+    # 2. Initialize the sweep on W&B servers
+    sweep_id = wandb.sweep(
+        sweep=sweep_configuration,
+        project="bgd-tune-cifar10",
+    )
+    print(f"Sweep ID: {sweep_id}")
+
+    wandb.agent(
+        sweep_id=sweep_id,
+        function=lambda: main(data_dir=args.data_dir),
+    )

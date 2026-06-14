@@ -15,50 +15,13 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from torchvision.transforms import v2
 import wandb
-from bgd import (
-    BGD,
-    CGRS,
-    DGRS,
-    DGRF,
-    CGRF,
-    DGSS,
-    CGSS,
-    DGSF,
-    CGSF,
-    DPRS,
-    CPRS,
-    DPRF,
-    CPRF,
-    DPSS,
-    CPSS,
-    DPSF,
-    CPSF,
-)
-
+from bgd import BGD_VARIANTS, BGD
 
 # To run: $ CUDA_VISIBLE_DEVICES=0 uv run tuner.py &
 
 # -------------------------
 # Config
 # -------------------------
-BGD_VARIANTS = (
-    DGRS,
-    CGRS,
-    DGRF,
-    CGRF,
-    DGSS,
-    CGSS,
-    DGSF,
-    CGSF,
-    DPRS,
-    CPRS,
-    DPRF,
-    CPRF,
-    DPSS,
-    CPSS,
-    DPSF,
-    CPSF,
-)
 DEVICE = "cuda"
 MODEL_NAME = "resnet50"
 BS = 256
@@ -93,9 +56,11 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
         return loss.item()
 
     best_val_acc = 0.0
+    best_train_loss = 0.0
     best_model: dict[str, Any] = {}
-    best_epoch = 0
+    best_val_epoch = 0
 
+    print(f"Starting training on GPU: {next(model.parameters()).get_device()}")
     for epoch in trange(1, epochs+1):
         model.train()
         epoch_loss = 0.0
@@ -113,8 +78,9 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
+            best_train_loss = epoch_loss
             best_model = deepcopy(model.state_dict())
-            best_epoch = epoch
+            best_val_epoch = epoch
 
         run.log(dict(
                 train_loss=epoch_loss/n_samples,
@@ -122,7 +88,8 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
                 ), step=epoch)
 
     run.summary["best_val_acc"] = best_val_acc
-    run.summary["best_val_epoch"] = best_epoch
+    run.summary["best_train_loss"] = best_train_loss
+    run.summary["best_val_epoch"] = best_val_epoch
     return best_model
 
 
@@ -136,7 +103,7 @@ def eval_model(model, eval_loader) -> float:
         x, y = x.to(DEVICE, non_blocking=True), y.to(DEVICE, non_blocking=True)
         logits = model(x)
         preds = logits.argmax(dim=1)
-        correct += (preds.eq_(y)).sum_().item()
+        correct += (preds.eq_(y)).sum().item()
         total += y.size(0)
 
     acc = 100.0 * correct / total
@@ -195,11 +162,17 @@ def main(data_dir: str):
         test_ds, batch_size=BS, shuffle=False, num_workers=0, persistent_workers=False
     )
 
-    # Start W&B Sweeps:
+    # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
     run = wandb.init(
-            project="bgd-tune-cifar10",
-            config=dict(model=MODEL_NAME, epochs=EPOCHS, batch_size=BS, weight_decay=WD,)
-            )
+        project="bgd-tune-cifar10",
+        job_type="train",
+        config=dict(
+            model=MODEL_NAME,
+            epochs=EPOCHS,
+            batch_size=BS,
+            weight_decay=WD,
+        ),
+    )
 
     config = run.config
     bgd_var: str = config.variant

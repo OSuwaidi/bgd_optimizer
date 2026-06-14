@@ -424,3 +424,23 @@ class CPSF(BGD):
     _bounce_condition = per_coordinate_bounce  # P
     _get_convex_weights = sigmoid_convex_weights  # S
     _interpolate = full_decay_interpolation  # F
+
+
+BGD_VARIANTS: tuple[type[BGD]] = (
+    DGRS,
+    CGRS,
+    DGRF,
+    CGRF,
+    DGSS,
+    CGSS,
+    DGSF,
+    CGSF,
+    DPRS,
+    CPRS,
+    DPRF,
+    CPRF,
+    DPSS,
+    CPSS,
+    DPSF,
+    CPSF,
+    )
