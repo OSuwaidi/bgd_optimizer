@@ -20,7 +20,6 @@ from bgd import BGD_VARIANTS, BGD
 # -------------------------
 # Config
 # -------------------------
-PROJECT_NAME = "bgd-tune-cifar10"
 DEVICE = "cuda"
 MODEL_NAME = "resnet50"
 WARMUP_EPOCHS = 5
@@ -161,7 +160,6 @@ def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
     run = wandb.init(
-        project=PROJECT_NAME,
         job_type="train",
         config=dict(
             model=MODEL_NAME,
@@ -169,7 +167,7 @@ def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
             batch_size=batch_size,
             weight_decay=weight_decay,
         ),
-    )
+    )  # individual runs are forced into the parent sweep's project name
 
     config = run.config
     bgd_var: str = config.variant
