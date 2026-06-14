@@ -1,6 +1,6 @@
 import wandb
 from bgd import BGD_VARIANTS
-from tuner import main
+from tuner import main, PROJECT_NAME
 
 variant_names: list[str] = [bgd_var.__name__ for bgd_var in BGD_VARIANTS]
 SEEDS = (77, 433, 1024)
@@ -31,11 +31,12 @@ if __name__ == "__main__":
     # 2. Initialize the sweep on W&B servers
     sweep_id = wandb.sweep(
         sweep=sweep_configuration,
-        project="bgd-tune-cifar10",
+        project=PROJECT_NAME,
     )
     print(f"Sweep ID: {sweep_id}")
 
     wandb.agent(
         sweep_id=sweep_id,
         function=lambda: main(data_dir=args.data_dir),
+        project=PROJECT_NAME,
     )

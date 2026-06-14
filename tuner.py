@@ -22,6 +22,7 @@ from bgd import BGD_VARIANTS, BGD
 # -------------------------
 # Config
 # -------------------------
+PROJECT_NAME = "bgd-tune-cifar10"
 DEVICE = "cuda"
 MODEL_NAME = "resnet50"
 BS = 256
@@ -164,7 +165,7 @@ def main(data_dir: str):
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
     run = wandb.init(
-        project="bgd-tune-cifar10",
+        project=PROJECT_NAME,
         job_type="train",
         config=dict(
             model=MODEL_NAME,
