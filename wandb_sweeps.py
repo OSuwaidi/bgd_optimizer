@@ -9,30 +9,32 @@ PROJECT_NAME = "bgd-tune-cifar10"
 SEEDS = (77, 433, 1024)
 LRs = (0.03, 0.05, 0.1, 0.2, 0.3, 0.5)
 
-# 1. Define the sweep configuration
-sweep_configuration = {
-    "name": "bgd-resnet50-cifar10",
-    "method": "grid",  # 'grid' tries every combination. Use 'bayes' or 'random' for large searches.
-    "metric": {
-        "name": "test_acc",
-        "goal": "maximize",
-    },
-    "parameters": {
-        "variant": {"values": variant_names},
-        "lr": {"values": LRs},
-        "seed": {"values": SEEDS},
-    },
-}
-
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="./data")
+    parser.add_argument("--model", type=str, default="resnet18")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
     args = parser.parse_args()
+
+    # 1. Define the sweep configuration
+    sweep_configuration = {
+        "name": f"bgd-{args.model}-cifar10",
+        "method": "grid",  # 'grid' tries every combination. Use 'bayes' or 'random' for large searches.
+        "metric": {
+            "name": "test_acc",
+            "goal": "maximize",
+            },
+        "parameters": {
+            "variant": {"values": variant_names},
+            "lr": {"values": LRs},
+            "seed": {"values": SEEDS},
+            },
+        }
+
     args_dict = vars(args)
 
     # 2. Initialize the sweep on W&B servers

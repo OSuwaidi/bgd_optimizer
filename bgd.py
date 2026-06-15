@@ -227,13 +227,13 @@ class BGD(Optimizer):
             wd = group["weight_decay"]
 
             P = self._params_to_vec(params)
-            group["prev_params"].copy_(P)
             G = self._param_grads_to_vec(params)
 
             if wd > 0.0:
                 if self._couple_gradient:
                     G.add_(P, alpha=wd)  # coupled weight decay ==> regularized gradient
 
+            group["prev_params"].copy_(P)
             group["prev_grad"].copy_(G)
 
             probe_P = P.sub_(G, alpha=lr)
@@ -251,34 +251,34 @@ class BGD(Optimizer):
             lr = group["lr"]
             wd = group["weight_decay"]
 
-            P = self._params_to_vec(params)
-            G = self._param_grads_to_vec(params)
+            probe_P = self._params_to_vec(params)
+            probe_G = self._param_grads_to_vec(params)
 
             if wd > 0.0:
                 if self._couple_gradient:
-                    G.add_(P, alpha=wd)
+                    probe_G.add_(probe_P, alpha=wd)
 
-            bounce_cond = self._bounce_condition(prev_G, G, self.tau)
+            bounce_cond = self._bounce_condition(prev_G, probe_G, self.tau)
 
             if bounce_cond.ndim == 0:
                 # Global bounce condition branch
                 if bounce_cond.item():
-                    w = self._get_convex_weights(prev_G, G)
+                    w = self._get_convex_weights(prev_G, probe_G)
                     new_P = self._interpolate(prev_P, prev_G, w, wd, lr, self._couple_gradient)
                 else:
                     if wd > 0.0:
                         if self._couple_gradient:  # decouple/dergularize the L2 penalty from gradients
                             prev_G.sub_(prev_P, alpha=wd)
-                            G.sub_(P, alpha=wd)
+                            probe_G.sub_(probe_P, alpha=wd)
 
                         prev_P.mul_(1.0 - lr * wd)
 
-                    new_P = prev_P.sub_(G.add_(prev_G), alpha=lr / 2.0)
+                    new_P = prev_P.sub_(probe_G.add_(prev_G), alpha=lr / 2.0)
 
-            else:  # Per-coordinate bounce condition branch
+            else:  # Per-coordinate bounce condition branch --- TODO: maybe computing full bounce and full non_bounce then using "torch.where()" is more efficient?
                 # Bouncing coordinates
-                w = self._get_convex_weights(prev_G[bounce_cond], G[bounce_cond])
-                new_P = torch.empty_like(P)
+                w = self._get_convex_weights(prev_G[bounce_cond], probe_G[bounce_cond])
+                new_P = torch.empty_like(probe_P)
                 new_P[bounce_cond] = self._interpolate(
                         prev_P[bounce_cond],
                         prev_G[bounce_cond],
@@ -295,11 +295,11 @@ class BGD(Optimizer):
                         # Boolean indexing returns a *new* temporary copy (rather than views)
                         # Achieve true in-place op via augmented assignment
                         prev_G[non_bounce] -= prev_P[non_bounce].mul_(wd)
-                        G[non_bounce] -= P[non_bounce].mul_(wd)
+                        probe_G[non_bounce] -= probe_P[non_bounce].mul_(wd)
 
                     prev_P[non_bounce] *= (1.0 - lr * wd)
 
-                new_P[non_bounce] = prev_P[non_bounce].sub_(G[non_bounce].add_(prev_G[non_bounce]).mul_(lr / 2.0))
+                new_P[non_bounce] = prev_P[non_bounce].sub_(probe_G[non_bounce].add_(prev_G[non_bounce]).mul_(lr / 2.0))
 
             self._assign_vec_to_params(new_P, params)
 

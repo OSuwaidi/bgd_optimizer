@@ -21,7 +21,6 @@ import timm
 # Config
 # -------------------------
 DEVICE = "cuda"
-MODEL_NAME = "resnet50"
 WARMUP_EPOCHS = 5
 NUM_WORKERS = cpu_count() // 3
 NAME_2_VARIANT: dict[str, type[BGD]] = {bgd_var.__name__: bgd_var for bgd_var in BGD_VARIANTS}
@@ -118,7 +117,7 @@ class TransformDataset(Dataset):
         return self.T(x), y
 
 
-def main(data_dir: str = "./data", epochs: int = 100, batch_size: int = 256, weight_decay: float = 0.0):
+def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100, batch_size: int = 256, weight_decay: float = 1e-5):
     train_transform = v2.Compose(
         [
             v2.PILToTensor(),
@@ -162,7 +161,7 @@ def main(data_dir: str = "./data", epochs: int = 100, batch_size: int = 256, wei
     run = wandb.init(
         job_type="train",
         config=dict(
-            model=MODEL_NAME,
+            model=model,
             epochs=epochs,
             batch_size=batch_size,
             weight_decay=weight_decay,
@@ -174,13 +173,16 @@ def main(data_dir: str = "./data", epochs: int = 100, batch_size: int = 256, wei
     lr = config.lr
     seed = config.seed
 
-    run.name = f"{bgd_var}_{lr}_{seed}_{MODEL_NAME}"
+    run.name = f"{bgd_var}_{lr}_{seed}_{model}"
 
     set_seed(seed)
 
-    model = resnet18()
-    model.fc = nn.Linear(512, len(raw_ds.classes), bias=True)
-    model = timm.create_model("nf_resnet26", pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
+    if model == "resnet18":
+        model = resnet18(norm_layer=lambda n_channels: nn.GroupNorm(num_groups=32, num_channels=n_channels))
+        model.fc = nn.Linear(512, len(raw_ds.classes), bias=True)
+    else:  # repvgg_b0
+        model = timm.create_model("nf_resnet26", pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
+
     model.to(DEVICE)
 
     train_indices, val_indices = train_test_split(indices, train_size=train_size, stratify=raw_ds.targets, random_state=seed)
