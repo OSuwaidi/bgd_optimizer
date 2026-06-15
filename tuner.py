@@ -1,5 +1,4 @@
 from typing import Any
-from copy import deepcopy
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Subset, Dataset
@@ -73,7 +72,7 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_train_loss = epoch_loss/n_samples
-            best_model = deepcopy(model.state_dict())
+            best_model = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             best_val_epoch = epoch
 
         run.log(dict(
