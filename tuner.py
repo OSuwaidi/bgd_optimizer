@@ -5,7 +5,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Subset, Dataset
 from sklearn.model_selection import train_test_split
 from torchvision import datasets
-from torchvision.models import resnet50
+from torchvision.models import resnet18
 import numpy as np
 import random
 from multiprocessing import cpu_count
@@ -178,8 +178,8 @@ def main(data_dir: str = "./data", epochs: int = 100, batch_size: int = 256, wei
 
     set_seed(seed)
 
-    model = resnet50()
-    model.fc = nn.Linear(2048, len(raw_ds.classes), bias=True)
+    model = resnet18()
+    model.fc = nn.Linear(512, len(raw_ds.classes), bias=True)
     model = timm.create_model("nf_resnet26", pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
     model.to(DEVICE)
 
