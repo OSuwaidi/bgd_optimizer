@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Any
 from copy import deepcopy
 import torch
@@ -16,6 +15,7 @@ from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from torchvision.transforms import v2
 import wandb
 from bgd import BGD_VARIANTS, BGD
+import timm
 
 # -------------------------
 # Config
@@ -23,7 +23,7 @@ from bgd import BGD_VARIANTS, BGD
 DEVICE = "cuda"
 MODEL_NAME = "resnet50"
 WARMUP_EPOCHS = 5
-NUM_WORKERS = cpu_count() // 2
+NUM_WORKERS = cpu_count() // 3
 NAME_2_VARIANT: dict[str, type[BGD]] = {bgd_var.__name__: bgd_var for bgd_var in BGD_VARIANTS}
 
 
@@ -118,7 +118,7 @@ class TransformDataset(Dataset):
         return self.T(x), y
 
 
-def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
+def main(data_dir: str = "./data", epochs: int = 100, batch_size: int = 256, weight_decay: float = 0.0):
     train_transform = v2.Compose(
         [
             v2.PILToTensor(),
@@ -179,7 +179,8 @@ def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
     set_seed(seed)
 
     model = resnet50()
-    model.fc = nn.Linear(2048, 10, bias=True)
+    model.fc = nn.Linear(2048, len(raw_ds.classes), bias=True)
+    model = timm.create_model("nf_resnet26", pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
     model.to(DEVICE)
 
     train_indices, val_indices = train_test_split(indices, train_size=train_size, stratify=raw_ds.targets, random_state=seed)
@@ -192,11 +193,12 @@ def main(data_dir: str, epochs: int, batch_size: int, weight_decay: float):
                               shuffle=True,
                               num_workers=NUM_WORKERS,  # torch pickles "worker_init_fn" + dataset + all its transforms and sends serialized copy to each worker
                               persistent_workers=NUM_WORKERS > 0,
-                              drop_last=False,
+                              pin_memory=True,
+                              drop_last=True,  # a final small batchsize (4 here) is too noisy and can throw the model off, especially with BatchNorm
                               worker_init_fn=set_worker_seed,
                               generator=torch.Generator().manual_seed(seed))
 
-    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False)
+    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True)
 
     optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay)
 
