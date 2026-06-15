@@ -178,10 +178,10 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
     set_seed(seed)
 
     if model == "resnet18":
-        model = resnet18(norm_layer=lambda n_channels: nn.GroupNorm(num_groups=32, num_channels=n_channels))
+        model = resnet18(norm_layer=lambda n_channels: nn.GroupNorm(num_groups=min(32, n_channels // 4), num_channels=n_channels))
         model.fc = nn.Linear(512, len(raw_ds.classes), bias=True)
-    else:  # repvgg_b0
-        model = timm.create_model("nf_resnet26", pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
+    else:  # "repvgg_b0", "nf_resnet26", etc.
+        model = timm.create_model(model, pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
 
     model.to(DEVICE)
 
