@@ -24,7 +24,7 @@ def ratio_convex_weights(
 
 
 def sigmoid_convex_weights(self, G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
-    return G1.abs().sub_(G2.abs_()).sigmoid_()
+    return G1.abs().sub_(G2.abs_()).sigmoid_()  # todo: add decaying temperature parameter
 
 
 def full_decay_interpolation(

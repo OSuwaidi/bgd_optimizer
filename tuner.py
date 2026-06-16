@@ -76,12 +76,12 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
             best_val_epoch = epoch
 
         run.log(dict(
-                train_loss=epoch_loss/n_samples,
+                train_loss=round(epoch_loss/n_samples, 2),
                 val_acc=val_acc
                 ), step=epoch)
 
     run.summary["best_val_acc"] = best_val_acc
-    run.summary["best_train_loss"] = best_train_loss
+    run.summary["best_train_loss"] = round(best_train_loss, 2)
     run.summary["best_val_epoch"] = best_val_epoch
     return best_model
 
@@ -99,7 +99,7 @@ def eval_model(model, eval_loader) -> float:
         correct += (preds.eq_(y)).sum().item()
         total += y.size(0)
 
-    acc = 100.0 * correct / total
+    acc = round(100.0 * correct / total, 2)
     return acc
 
 
