@@ -172,7 +172,7 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
     config = run.config
     bgd_var: str = config.variant
     lr = config.lr
-    temp_sched = config.temp_sched
+    temp_strat = config.temp_strat
     temp = config.temp
     seed = config.seed
 
@@ -211,7 +211,7 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
     total_steps = steps_per_epoch * epochs
     # warmup_steps = steps_per_epoch * WARMUP_EPOCHS
 
-    temp_step = temp_scheduler(optimizer, total_steps, temp_sched)
+    temp_step = temp_scheduler(optimizer, total_steps, temp_strat)
 
     # warmup_scheduler = LinearLR(
     #     optimizer,
