@@ -8,6 +8,8 @@ variant_names: list[str] = [bgd_var.__name__ for bgd_var in BGD_VARIANTS[:len(BG
 PROJECT_NAME = "bgd-tune-cifar10"
 SEEDS = (77, 433, 1024)
 LRs = (0.03, 0.05, 0.1, 0.2, 0.3, 0.5)
+TEMP_STRAT = ("linear", "cosine")
+TEMPs = (10., 5.)
 
 if __name__ == "__main__":
     import argparse
@@ -31,6 +33,8 @@ if __name__ == "__main__":
         "parameters": {
             "variant": {"values": variant_names},
             "lr": {"values": LRs},
+            "temp_sched": {"values": TEMP_STRAT},
+            "temp": {"values": TEMPs},
             "seed": {"values": SEEDS},
             },
         }

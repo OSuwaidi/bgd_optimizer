@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from torchvision.transforms import v2
 import wandb
-from bgd import BGD_VARIANTS, BGD
+from bgd import BGD_VARIANTS, BGD, temp_scheduler
 import timm
 
 # -------------------------
@@ -42,7 +42,7 @@ def set_worker_seed(worker_id):
     np.random.seed(worker_seed)
 
 
-def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None):
+def train_val(model, opt, epochs, train_loader, val_loader, run, lr_scheduler=None, temp_sched=None):
     def closure(x, y):
         loss = F.cross_entropy(model(x), y)
         loss.backward()
@@ -64,8 +64,10 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, scheduler=None)
             n_samples += n_batch
             loss = opt.step(lambda: closure(x, y))
             epoch_loss += loss * n_batch
-            if scheduler:
-                scheduler.step()
+            if lr_scheduler:
+                lr_scheduler.step()
+            if temp_sched:
+                temp_sched()
 
         val_acc = eval_model(model, val_loader)
 
@@ -170,6 +172,8 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
     config = run.config
     bgd_var: str = config.variant
     lr = config.lr
+    temp_sched = config.temp_sched
+    temp = config.temp
     seed = config.seed
 
     run.name = f"{bgd_var}_{lr}_{seed}_{model}"
@@ -201,11 +205,13 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
 
     val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True)
 
-    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, temperature=temp)
 
-    # steps_per_epoch = len(train_loader)
-    # total_steps = steps_per_epoch * epochs
+    steps_per_epoch = len(train_loader)
+    total_steps = steps_per_epoch * epochs
     # warmup_steps = steps_per_epoch * WARMUP_EPOCHS
+
+    temp_step = temp_scheduler(optimizer, total_steps, temp_sched)
 
     # warmup_scheduler = LinearLR(
     #     optimizer,
@@ -227,7 +233,7 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
     #     milestones=[warmup_steps]
     # )
 
-    best_model = train_val(model, optimizer, epochs, train_loader, val_loader, run)
+    best_model = train_val(model, optimizer, epochs, train_loader, val_loader, run, temp_sched=temp_step)
 
     artifact = wandb.Artifact(
         name=f"{run.id}-best-model",
