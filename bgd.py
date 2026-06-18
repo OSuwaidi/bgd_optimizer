@@ -1,8 +1,9 @@
+# بسم الله الرحمن الرحيم وبه نستعين
+
 import warnings
 
 from typing import Callable, Iterable, Any
 
-from math import cos, pi
 import torch
 from torch.optim import Optimizer
 
@@ -18,14 +19,14 @@ def per_coordinate_bounce(self, G1: torch.Tensor, G2: torch.Tensor, tau: float) 
 
 def ratio_convex_weights(
         self,
-        G1: torch.Tensor, G2: torch.Tensor, temp: float, eps: float = 1e-8,
+        G1: torch.Tensor, G2: torch.Tensor, eps: float = 1e-8,
         ) -> torch.Tensor:
     numerator = G1.abs().add_(eps)
     return numerator.div_(G2.abs_().add_(numerator).add_(eps))
 
 
-def sigmoid_convex_weights(self, G1: torch.Tensor, G2: torch.Tensor, temp: float) -> torch.Tensor:
-    return G1.abs().sub_(G2.abs_()).div_(temp).sigmoid_()
+def sigmoid_convex_weights(self, G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
+    return G1.abs().sub_(G2.abs_()).sigmoid_()
 
 
 def full_decay_interpolation(
@@ -65,28 +66,6 @@ def scaled_decay_interpolation(
     return P1.sub_(weights.mul_(G1), alpha=lr)
 
 
-def temp_scheduler(optimizer: Optimizer, T_max: int, strategy: str) -> Callable[[], None]:
-    if T_max <= 0:
-        raise ValueError(f"Invalid T_max: {T_max}")
-    if optimizer.temp <= 0:
-        raise ValueError(f"Invalid temperature: {optimizer.temp}")
-
-    temp_start = optimizer.temp
-    temp_end = 1.0
-
-    def step() -> None:
-        progress = optimizer.step_idx / T_max
-
-        if strategy == "linear":
-            optimizer.temp = temp_start - progress * (temp_start - temp_end)
-        elif strategy == "cosine":  # cosine annealing
-            optimizer.temp = temp_end + 0.5*(temp_start - temp_end) * (1.0 + cos(pi * progress))
-        else:
-            raise ValueError(f"Unknown temperature schedule: {strategy}")
-
-    return step
-
-
 class BGD(Optimizer):
     # TODO: Visualize low-rank dynamics across layers during training
     # TODO: Deal with BN layers by temporarily disabling its running-stat updates during the first or second pass
@@ -107,7 +86,6 @@ class BGD(Optimizer):
             beta: float = 0.9,
             weight_decay: float = 0.0,
             tau: float = 0.0,
-            temperature: float = 5.0,
             ) -> None:
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
@@ -118,9 +96,9 @@ class BGD(Optimizer):
         if tau < 0.0:
             raise ValueError(f"Invalid tau value: {tau}")
 
-        self.step_idx: int = 0
+        self.t: int = 0  # denoting step/iteration index
+        self.beta = beta
         self.tau = tau
-        self.temp = temperature
         self.param_groups: list[dict[str, Any]]
 
         decay_params: list[torch.nn.Parameter] = []
@@ -149,9 +127,11 @@ class BGD(Optimizer):
 
         prev_no_decay_params = torch.empty(no_decay_params_dims, device=device)
         prev_no_decay_grad = torch.empty_like(prev_no_decay_params)
+        momentum_no_decay = torch.empty_like(prev_no_decay_params)
 
         prev_decay_params = torch.empty(decay_params_dims, device=device)
         prev_decay_grad = torch.empty_like(prev_decay_params)
+        momentum_decay = torch.empty_like(prev_decay_params)
 
         optim_groups = []
 
@@ -161,6 +141,7 @@ class BGD(Optimizer):
                         "params": no_decay_params,
                         "prev_params": prev_no_decay_params,
                         "prev_grad": prev_no_decay_grad,
+                        "momentum": momentum_no_decay,
                         "weight_decay": 0.0,
                         }
                     )
@@ -170,6 +151,7 @@ class BGD(Optimizer):
                         "params": decay_params,
                         "prev_params": prev_decay_params,
                         "prev_grad": prev_decay_grad,
+                        "momentum": momentum_decay,
                         "weight_decay": weight_decay,
                         },
                     )
@@ -183,7 +165,7 @@ class BGD(Optimizer):
         raise NotImplementedError
 
     def _get_convex_weights(
-            self, prev_G: torch.Tensor, probe_G: torch.Tensor, temp: float
+            self, prev_G: torch.Tensor, probe_G: torch.Tensor,
             ) -> torch.Tensor:
         raise NotImplementedError
 
@@ -250,6 +232,7 @@ class BGD(Optimizer):
             params = group["params"]
             lr = group["lr"]
             wd = group["weight_decay"]
+            m = group["momentum"]
 
             P = self._params_to_vec(params)
             G = self._param_grads_to_vec(params)
@@ -261,7 +244,11 @@ class BGD(Optimizer):
             group["prev_params"].copy_(P)
             group["prev_grad"].copy_(G)
 
-            probe_P = P.sub_(G, alpha=lr)
+            m.mul_(self.beta).add_(G, alpha=1.0 - self.beta)
+
+            unbias_m = m / (1.0 - self.beta ** self.t)
+
+            probe_P = P.sub_(unbias_m, alpha=lr)
             self._assign_vec_to_params(probe_P, params)  # update current model's params to probe params
 
         self.zero_grad(set_to_none=True)
@@ -275,6 +262,7 @@ class BGD(Optimizer):
             prev_G = group["prev_grad"]
             lr = group["lr"]
             wd = group["weight_decay"]
+            m = group["momentum"]
 
             probe_P = self._params_to_vec(params)
             probe_G = self._param_grads_to_vec(params)
@@ -288,7 +276,7 @@ class BGD(Optimizer):
             if bounce_cond.ndim == 0:
                 # Global bounce condition branch
                 if bounce_cond.item():
-                    w = self._get_convex_weights(prev_G, probe_G, self.temp)
+                    w = self._get_convex_weights(prev_G, probe_G,)
                     new_P = self._interpolate(prev_P, prev_G, w, wd, lr, self._couple_gradient)
                 else:
                     if wd > 0.0:
@@ -302,7 +290,7 @@ class BGD(Optimizer):
 
             else:  # Per-coordinate bounce condition branch --- TODO: maybe computing full bounce and full non_bounce then using "torch.where()" is more efficient?
                 # Bouncing coordinates
-                w = self._get_convex_weights(prev_G[bounce_cond], probe_G[bounce_cond], self.temp)
+                w = self._get_convex_weights(prev_G[bounce_cond], probe_G[bounce_cond],)
                 new_P = torch.empty_like(probe_P)
                 new_P[bounce_cond] = self._interpolate(
                         prev_P[bounce_cond],
@@ -328,7 +316,7 @@ class BGD(Optimizer):
 
             self._assign_vec_to_params(new_P, params)
 
-        self.step_idx += 1
+        self.t += 1
 
         return loss
 
