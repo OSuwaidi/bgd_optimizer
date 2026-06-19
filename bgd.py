@@ -74,6 +74,9 @@ class BGD(Optimizer):
         params (iterable): iterable of parameters to optimize
         lr (float): base learning rate (default: 0.1)
         beta (float): momentum factor (default: 0.9)
+        EMA (bool): whether to use EMA-based momentum or (False) Heavy Ball momentum (default: True)
+        weight_decay (float): L2 norm weight decay value (default: 0.0)
+        tau (float): bounce condition tolerance; the higher, the more restrictive the condition is (default: 0.0)
     """
 
     _couple_gradient = False
@@ -83,6 +86,7 @@ class BGD(Optimizer):
             params: Iterable[torch.nn.Parameter],
             lr: float = 0.1,
             beta: float = 0.9,
+            EMA: bool = True,
             weight_decay: float = 0.0,
             tau: float = 0.0,
             ) -> None:
@@ -92,9 +96,10 @@ class BGD(Optimizer):
             raise ValueError(f"Invalid beta value: {beta}")
         if weight_decay < 0.0:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
-        if tau < 0.0:
+        if not 0.0 <= tau < 1.0:
             raise ValueError(f"Invalid tau value: {tau}")
 
+        self.EMA = EMA
         self.tau = tau
         self.param_groups: list[dict[str, Any]]
 
@@ -253,7 +258,10 @@ class BGD(Optimizer):
             group["prev_params"].copy_(P)
             group["prev_grad"].copy_(G)
 
-            m.mul_(self.beta).add_(G, alpha=1.0 - self.beta)
+            if self.EMA:
+                m.mul_(self.beta).add_(G, alpha=1.0 - self.beta)
+            else:
+                m.mul_(self.beta).add_(G)
 
             mom_bounce_cond = self._bounce_condition(G, m, self.tau)
 
@@ -261,14 +269,24 @@ class BGD(Optimizer):
                 # Global bounce condition branch
                 if mom_bounce_cond.item():
                     # Restart momentum state
-                    m.copy_(G * (1.0 - self.beta))
-                    t.copy_(t.new_ones(t.size(0)))
+                    if self.EMA:
+                        m.copy_(G * (1.0 - self.beta))
+                        t.copy_(t.new_ones(t.size(0)))
+                    else:
+                        m.copy_(G)
 
             else:  # Per-coordinate bounce condition branch
-                m.copy_(torch.where(mom_bounce_cond, G * (1.0 - self.beta), m))
-                t.copy_(torch.where(mom_bounce_cond, 1.0, t))
+                if self.EMA:
+                    m.copy_(torch.where(mom_bounce_cond, G * (1.0 - self.beta), m))
+                    t.copy_(torch.where(mom_bounce_cond, 1.0, t))
+                else:
+                    m.copy_(torch.where(mom_bounce_cond, G, m))
 
-            unbias_m = m / (1.0 - self.beta ** t)
+            if self.EMA:
+                unbias_m = m / (1.0 - self.beta ** t)
+            else:
+                unbias_m = m
+
             probe_P = P.sub_(unbias_m, alpha=lr)
             self._assign_vec_to_params(probe_P, params)  # update current model's params to probe params
 
@@ -298,7 +316,10 @@ class BGD(Optimizer):
             if bounce_cond.ndim == 0:
                 # Global bounce condition branch
                 if bounce_cond.item():
-                    unbias_m = m / (1.0 - self.beta ** t)
+                    if self.EMA:
+                        unbias_m = m / (1.0 - self.beta ** t)
+                    else:
+                        unbias_m = m
                     w = self._get_convex_weights(unbias_m, probe_G,)
                     new_P = self._interpolate(prev_P, unbias_m, w, wd, lr, self._couple_gradient)
 
@@ -310,8 +331,12 @@ class BGD(Optimizer):
                         if not self._couple_gradient:  # decouple/dergularize the L2 penalty from gradients
                             prev_P.mul_(1.0 - lr * wd)
 
-                    m.add_(probe_G.sub_(prev_G), alpha=(1.0 - self.beta)/2.0)
-                    unbias_m = m / (1.0 - self.beta ** t)
+                    if self.EMA:
+                        m.add_(probe_G.sub_(prev_G), alpha=(1.0 - self.beta)/2.0)
+                        unbias_m = m / (1.0 - self.beta ** t)
+                    else:
+                        unbias_m = m.add_(probe_G.sub_(prev_G), alpha=0.5)
+
                     new_P = prev_P.sub_(unbias_m, alpha=lr)
 
             else:  # Per-coordinate bounce condition branch --- TODO: maybe computing full bounce and full non_bounce then using "torch.where()" is more efficient?
@@ -323,9 +348,13 @@ class BGD(Optimizer):
                     if not self._couple_gradient:
                         prev_P[non_bounce] *= (1.0 - lr * wd)
 
-                m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_((1.0 - self.beta)/2.0)
+                if self.EMA:
+                    m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_((1.0 - self.beta)/2.0)
+                    unbias_m = m / (1.0 - self.beta ** t)
+                else:
+                    m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_(0.5)
+                    unbias_m = m
 
-                unbias_m = m / (1.0 - self.beta ** t)
                 new_P[non_bounce] = prev_P[non_bounce].sub_(unbias_m[non_bounce], alpha=lr)
 
                 # Bouncing coordinates
