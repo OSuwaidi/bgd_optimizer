@@ -385,28 +385,6 @@ class BGD(Optimizer):
 # Slot order is fixed
 
 
-class DGRS(BGD):
-    _couple_gradient = False  # D
-    _bounce_condition = global_bounce  # G
-    _get_convex_weights = ratio_convex_weights  # R
-    _interpolate = scaled_decay_interpolation  # S
-
-
-
-class CGRS(BGD):
-    _couple_gradient = True  # C
-    _bounce_condition = global_bounce  # G
-    _get_convex_weights = ratio_convex_weights  # R
-    _interpolate = scaled_decay_interpolation  # S
-
-
-class DGRF(BGD):
-    _couple_gradient = False  # D
-    _bounce_condition = global_bounce  # G
-    _get_convex_weights = ratio_convex_weights  # R
-    _interpolate = full_decay_interpolation  # F
-
-
 class DGSS(BGD):
     _couple_gradient = False  # D
     _bounce_condition = global_bounce  # G
@@ -450,9 +428,6 @@ class DPRF(BGD):
 
 
 BGD_VARIANTS: tuple[type[BGD], ...] = (
-    DGRS,
-    CGRS,
-    DGRF,
     DGSS,
     CGSS,
     DGSF,
