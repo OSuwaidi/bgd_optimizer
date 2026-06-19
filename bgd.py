@@ -8,62 +8,59 @@ import torch
 from torch.optim import Optimizer
 
 
-def global_bounce(self, G1: torch.Tensor, G2: torch.Tensor, tau: float) -> torch.Tensor:
+def global_bounce(G1: torch.Tensor, G2: torch.Tensor, tau: float = 0.0) -> torch.Tensor:
     # "Global" per optimizer param group (not fully model-global)
     return (G1 @ G2) < (-tau * G1.norm() * G2.norm())
 
 
-def per_coordinate_bounce(self, G1: torch.Tensor, G2: torch.Tensor, tau: float) -> torch.Tensor:
+def per_coordinate_bounce(G1: torch.Tensor, G2: torch.Tensor, tau: float = 0.0) -> torch.Tensor:
     return (G1.mul(G2)) < 0.0
 
 
 def ratio_convex_weights(
-        self,
-        G1: torch.Tensor, G2: torch.Tensor, eps: float = 1e-8,
+        prev_G: torch.Tensor, probe_G: torch.Tensor, eps: float = 1e-8,
         ) -> torch.Tensor:
-    numerator = G1.abs().add_(eps)
-    return numerator.div_(G2.abs_().add_(numerator).add_(eps))
+    numerator = prev_G.abs().add_(eps)
+    return numerator.div_(probe_G.abs_().add_(numerator).add_(eps))
 
 
-def sigmoid_convex_weights(self, G1: torch.Tensor, G2: torch.Tensor) -> torch.Tensor:
-    return G1.abs().sub_(G2.abs_()).sigmoid_()
+def sigmoid_convex_weights(prev_G: torch.Tensor, probe_G: torch.Tensor, eps: float = 1e-8, ) -> torch.Tensor:
+    return prev_G.abs().sub_(probe_G.abs_()).sigmoid_()
 
 
 def full_decay_interpolation(
-        self,
-        P1: torch.Tensor,
-        G1: torch.Tensor,
+        prev_P: torch.Tensor,
+        prev_G: torch.Tensor,
         weights: torch.Tensor,
-        wd: float,
-        lr: float,
+        weight_decay: float,
+        learning_rate: float,
         coupled_gradient: bool,
         ) -> torch.Tensor:
     r"""
     Performs: :math:`\theta_{t+1} = (1 - \alpha \, \lambda) \theta_t - \alpha \, w \odot g_t`
     """
-    if wd > 0.0:
+    if weight_decay > 0.0:
         if coupled_gradient:
-            G1.sub_(P1, alpha=wd)
-        P1.mul_(1 - wd * lr)
-    return P1.sub_(weights.mul_(G1), alpha=lr)
+            prev_G.sub_(prev_P, alpha=weight_decay)
+        prev_P.mul_(1 - weight_decay * learning_rate)
+    return prev_P.sub_(weights.mul_(prev_G), alpha=learning_rate)
 
 
 def scaled_decay_interpolation(
-        self,
-        P1: torch.Tensor,
-        G1: torch.Tensor,
+        prev_P: torch.Tensor,
+        prev_G: torch.Tensor,
         weights: torch.Tensor,
-        wd: float,
-        lr: float,
+        weight_decay: float,
+        learning_rate: float,
         coupled_gradient: bool,
         ) -> torch.Tensor:
     r"""
     Performs: :math:`\theta_{t+1} = (1 - \alpha \, \lambda w) \theta_t - \alpha \, w \odot g_t`
     """
-    if wd > 0.0:
+    if weight_decay > 0.0:
         if not coupled_gradient:
-            G1.add_(P1, alpha=wd)
-    return P1.sub_(weights.mul_(G1), alpha=lr)
+            prev_G.add_(prev_P, alpha=weight_decay)
+    return prev_P.sub_(weights.mul_(prev_G), alpha=learning_rate)
 
 
 class BGD(Optimizer):
@@ -74,10 +71,10 @@ class BGD(Optimizer):
     Args:
         params (iterable): iterable of parameters to optimize
         lr (float): base learning rate (default: 0.1)
-        TODO beta (float): momentum factor (default: 0.9)
+        beta (float): momentum factor (default: 0.9)
     """
 
-    _couple_gradient = None
+    _couple_gradient = False
 
     def __init__(
             self,
@@ -159,18 +156,20 @@ class BGD(Optimizer):
         defaults = dict(lr=lr, beta=beta)  # shared across all optim/param groups
         super().__init__(optim_groups, defaults)  # exposes "self.param_groups" attribute
 
+    @staticmethod
     def _bounce_condition(
-            self, prev_G: torch.Tensor, probe_G: torch.Tensor, tau: float
+            G1: torch.Tensor, G2: torch.Tensor, tau: float = 0.0
             ) -> torch.Tensor:
         raise NotImplementedError
 
+    @staticmethod
     def _get_convex_weights(
-            self, prev_G: torch.Tensor, probe_G: torch.Tensor,
+            prev_G: torch.Tensor, probe_G: torch.Tensor, eps: float = 1e-8,
             ) -> torch.Tensor:
         raise NotImplementedError
 
+    @staticmethod
     def _interpolate(
-            self,
             prev_P: torch.Tensor,
             prev_G: torch.Tensor,
             weights: torch.Tensor,
@@ -204,6 +203,7 @@ class BGD(Optimizer):
             pointer = end
 
     @torch.no_grad()
+    # pyrefly: ignore [bad-override]
     def step(self, closure: Callable[[], float]) -> float:
         # TODO: maybe no need to store "prev_params" as we can reconstruct it using "prev_grad" and "probe params"
         r"""
@@ -442,7 +442,7 @@ class CPSF(BGD):
     _interpolate = full_decay_interpolation  # F
 
 
-BGD_VARIANTS: tuple[type[BGD]] = (
+BGD_VARIANTS: tuple[type[BGD], ...] = (
     DGRS,
     CGRS,
     DGRF,

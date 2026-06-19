@@ -111,12 +111,12 @@ class TransformDataset(Dataset):
     def __len__(self):
         return len(self.dataset)
 
-    def __getitem__(self, idx):
-        x, y = self.dataset[idx]
+    def __getitem__(self, index):
+        x, y = self.dataset[index]
         return self.T(x), y
 
 
-def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100, batch_size: int = 256, weight_decay: float = 1e-5):
+def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int = 100, batch_size: int = 256, weight_decay: float = 1e-5):
     train_transform = v2.Compose(
         [
             v2.PILToTensor(),
@@ -160,7 +160,7 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
     run = wandb.init(
         job_type="train",
         config=dict(
-            model=model,
+            model=model_name,
             epochs=epochs,
             batch_size=batch_size,
             weight_decay=weight_decay,
@@ -172,15 +172,15 @@ def main(*, data_dir: str = "./data", model: str = "resnet18", epochs: int = 100
     lr = config.lr
     seed = config.seed
 
-    run.name = f"{bgd_var}_{lr}_{seed}_{model}"
+    run.name = f"{bgd_var}_{lr}_{seed}_{model_name}"
 
     set_seed(seed)
 
-    if model == "resnet18":
+    if model_name == "resnet18":
         model = resnet18(norm_layer=lambda n_channels: nn.GroupNorm(num_groups=min(32, n_channels // 4), num_channels=n_channels))
         model.fc = nn.Linear(512, len(raw_ds.classes), bias=True)
     else:  # "repvgg_b0", "nf_resnet26", etc.
-        model = timm.create_model(model, pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
+        model = timm.create_model(model_name, pretrained=False, num_classes=len(raw_ds.classes), drop_rate=0.0)
 
     model.to(DEVICE)
 
