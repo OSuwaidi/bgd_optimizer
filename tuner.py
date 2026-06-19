@@ -206,31 +206,31 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
 
     optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema, absorb_gradient_first=absorb, normalize_momentum=normalize)
 
-    # steps_per_epoch = len(train_loader)
-    # total_steps = steps_per_epoch * epochs
-    # warmup_steps = steps_per_epoch * WARMUP_EPOCHS
+    steps_per_epoch = len(train_loader)
+    total_steps = steps_per_epoch * epochs
+    warmup_steps = steps_per_epoch * WARMUP_EPOCHS
 
-    # warmup_scheduler = LinearLR(
-    #     optimizer,
-    #     start_factor=0.01,
-    #     end_factor=1.0,
-    #     total_iters=warmup_steps
-    # )
-    #
-    # cosine_scheduler = CosineAnnealingLR(
-    #     optimizer,
-    #     T_max=(total_steps - warmup_steps),
-    #     eta_min=1e-4
-    # )
-    #
-    # # Combine schedulers sequentially at the iteration level
-    # scheduler = SequentialLR(
-    #     optimizer,
-    #     schedulers=[warmup_scheduler, cosine_scheduler],
-    #     milestones=[warmup_steps]
-    # )
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=0.01,
+        end_factor=1.0,
+        total_iters=warmup_steps
+    )
 
-    best_model = train_val(model, optimizer, epochs, train_loader, val_loader, run)
+    cosine_scheduler = CosineAnnealingLR(
+        optimizer,
+        T_max=(total_steps - warmup_steps),
+        eta_min=1e-4
+    )
+
+    # Combine schedulers sequentially at the iteration level
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps]
+    )
+
+    best_model = train_val(model, optimizer, epochs, train_loader, val_loader, run, lr_scheduler=scheduler)
 
     artifact = wandb.Artifact(
         name=f"{run.id}-best-model",
