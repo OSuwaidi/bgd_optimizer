@@ -7,7 +7,7 @@ from tuner import main
 variant_names: list[str] = [bgd_var.__name__ for bgd_var in BGD_VARIANTS[:len(BGD_VARIANTS)//2]]
 PROJECT_NAME = "bgd-tune-cifar10"
 SEEDS = (77, 433, 1024)
-LRs = (0.03, 0.05, 0.1, 0.2, 0.3, 0.5)
+LRs = (0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
 
 if __name__ == "__main__":
     import argparse
@@ -15,14 +15,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="./data")
     parser.add_argument("--model", type=str, default="resnet18")
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
     args = parser.parse_args()
 
     # 1. Define the sweep configuration
     sweep_configuration = {
-        "name": f"bgd-{args.model}-cifar10",
+        "name": f"momentum-bgd-{args.model}-cifar10",
         "method": "grid",  # 'grid' tries every combination. Use 'bayes' or 'random' for large searches.
         "metric": {
             "name": "test_acc",
@@ -30,6 +30,8 @@ if __name__ == "__main__":
             },
         "parameters": {
             "variant": {"values": variant_names},
+            "ema": {"values": (True, False)},
+            "absorb": {"values": (True, False)},
             "lr": {"values": LRs},
             "seed": {"values": SEEDS},
             },

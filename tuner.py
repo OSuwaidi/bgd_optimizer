@@ -169,6 +169,8 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
 
     config = run.config
     bgd_var: str = config.variant
+    ema = config.ema
+    absorb = config.absorb
     lr = config.lr
     seed = config.seed
 
@@ -201,10 +203,10 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
 
     val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True)
 
-    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema, absorb_gradient_first=absorb)
 
-    steps_per_epoch = len(train_loader)
-    total_steps = steps_per_epoch * epochs
+    # steps_per_epoch = len(train_loader)
+    # total_steps = steps_per_epoch * epochs
     # warmup_steps = steps_per_epoch * WARMUP_EPOCHS
 
     # warmup_scheduler = LinearLR(
@@ -234,6 +236,8 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
         type="model",
         metadata={
             "variant": bgd_var,
+            "ema": ema,
+            "absorb": absorb,
             "lr": lr,
             "seed": seed,
         },
