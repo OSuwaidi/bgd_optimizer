@@ -38,11 +38,12 @@ def full_decay_interpolation(
         ) -> torch.Tensor:
     r"""
     Performs: :math:`\theta_{t+1} = (1 - \alpha \, \lambda) \theta_t - \alpha \, w \odot g_t`
+
+    ONLY applies to **decoupled** gradients approach! ==> Can't have CXXF variant
     """
     if weight_decay > 0.0:
-        if coupled_gradient:
-            prev_G.sub_(prev_P, alpha=weight_decay)
         prev_P.mul_(1 - weight_decay * learning_rate)
+
     return prev_P.sub_(weights.mul_(prev_G), alpha=learning_rate)
 
 
@@ -59,7 +60,8 @@ def scaled_decay_interpolation(
     """
     if weight_decay > 0.0:
         if not coupled_gradient:
-            prev_G.add_(prev_P, alpha=weight_decay)
+            prev_G = prev_G.add(prev_P, alpha=weight_decay)
+
     return prev_P.sub_(weights.mul_(prev_G), alpha=learning_rate)
 
 
@@ -86,15 +88,13 @@ class BGD(Optimizer):
             ) -> None:
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
-        if beta < 0.0:
+        if not 0.0 <= beta < 1.0:
             raise ValueError(f"Invalid beta value: {beta}")
         if weight_decay < 0.0:
             raise ValueError(f"Invalid weight_decay value: {weight_decay}")
         if tau < 0.0:
             raise ValueError(f"Invalid tau value: {tau}")
 
-        self.t: int = 0  # denoting step/iteration index
-        self.beta = beta
         self.tau = tau
         self.param_groups: list[dict[str, Any]]
 
@@ -122,13 +122,17 @@ class BGD(Optimizer):
         if "cuda" not in device.type:
             warnings.warn(f"Model parameters' device is not CUDA, rather is {device.type}!", stacklevel=2)
 
-        prev_no_decay_params = torch.empty(no_decay_params_dims, device=device)
-        prev_no_decay_grad = torch.empty_like(prev_no_decay_params)
-        momentum_no_decay = torch.empty_like(prev_no_decay_params)
+        self.beta: torch.Tensor = torch.tensor(beta, device=device)
 
-        prev_decay_params = torch.empty(decay_params_dims, device=device)
-        prev_decay_grad = torch.empty_like(prev_decay_params)
-        momentum_decay = torch.empty_like(prev_decay_params)
+        no_decay_prev_params = torch.empty(no_decay_params_dims, device=device)
+        no_decay_prev_grad = torch.empty_like(no_decay_prev_params)
+        no_decay_momentum = torch.zeros_like(no_decay_prev_params)
+        no_decay_step_index = torch.zeros_like(no_decay_prev_params)
+
+        decay_prev_params = torch.empty(decay_params_dims, device=device)
+        decay_prev_grad = torch.empty_like(decay_prev_params)
+        decay_momentum = torch.zeros_like(decay_prev_params)
+        decay_step_index = torch.zeros_like(decay_prev_params)
 
         optim_groups = []
 
@@ -136,9 +140,10 @@ class BGD(Optimizer):
             optim_groups.append(
                     {
                         "params": no_decay_params,
-                        "prev_params": prev_no_decay_params,
-                        "prev_grad": prev_no_decay_grad,
-                        "momentum": momentum_no_decay,
+                        "prev_params": no_decay_prev_params,
+                        "prev_grad": no_decay_prev_grad,
+                        "momentum": no_decay_momentum,
+                        "t": no_decay_step_index,
                         "weight_decay": 0.0,
                         }
                     )
@@ -146,9 +151,10 @@ class BGD(Optimizer):
             optim_groups.append(
                     {
                         "params": decay_params,
-                        "prev_params": prev_decay_params,
-                        "prev_grad": prev_decay_grad,
-                        "momentum": momentum_decay,
+                        "prev_params": decay_prev_params,
+                        "prev_grad": decay_prev_grad,
+                        "momentum": decay_momentum,
+                        "t": decay_step_index,
                         "weight_decay": weight_decay,
                         },
                     )
@@ -233,6 +239,9 @@ class BGD(Optimizer):
             lr = group["lr"]
             wd = group["weight_decay"]
             m = group["momentum"]
+            t = group["t"]
+
+            t.add_(1.0)
 
             P = self._params_to_vec(params)
             G = self._param_grads_to_vec(params)
@@ -246,8 +255,20 @@ class BGD(Optimizer):
 
             m.mul_(self.beta).add_(G, alpha=1.0 - self.beta)
 
-            unbias_m = m / (1.0 - self.beta ** self.t)
+            mom_bounce_cond = self._bounce_condition(G, m, self.tau)
 
+            if mom_bounce_cond.ndim == 0:
+                # Global bounce condition branch
+                if mom_bounce_cond.item():
+                    # Restart momentum state
+                    m.copy_(G * (1.0 - self.beta))
+                    t.copy_(t.new_ones(t.size(0)))
+
+            else:  # Per-coordinate bounce condition branch
+                m.copy_(torch.where(mom_bounce_cond, G * (1.0 - self.beta), m))
+                t.copy_(torch.where(mom_bounce_cond, 1.0, t))
+
+            unbias_m = m / (1.0 - self.beta ** t)
             probe_P = P.sub_(unbias_m, alpha=lr)
             self._assign_vec_to_params(probe_P, params)  # update current model's params to probe params
 
@@ -263,6 +284,7 @@ class BGD(Optimizer):
             lr = group["lr"]
             wd = group["weight_decay"]
             m = group["momentum"]
+            t = group["t"]
 
             probe_P = self._params_to_vec(params)
             probe_G = self._param_grads_to_vec(params)
@@ -271,52 +293,57 @@ class BGD(Optimizer):
                 if self._couple_gradient:
                     probe_G.add_(probe_P, alpha=wd)
 
-            bounce_cond = self._bounce_condition(prev_G, probe_G, self.tau)
+            bounce_cond = self._bounce_condition(m, probe_G, self.tau)
 
             if bounce_cond.ndim == 0:
                 # Global bounce condition branch
                 if bounce_cond.item():
-                    w = self._get_convex_weights(prev_G, probe_G,)
-                    new_P = self._interpolate(prev_P, prev_G, w, wd, lr, self._couple_gradient)
+                    unbias_m = m / (1.0 - self.beta ** t)
+                    w = self._get_convex_weights(unbias_m, probe_G,)
+                    new_P = self._interpolate(prev_P, unbias_m, w, wd, lr, self._couple_gradient)
+
+                    # Restart momentum state
+                    m.zero_()
+                    t.zero_()
                 else:
                     if wd > 0.0:
-                        if self._couple_gradient:  # decouple/dergularize the L2 penalty from gradients
-                            prev_G.sub_(prev_P, alpha=wd)
-                            probe_G.sub_(probe_P, alpha=wd)
+                        if not self._couple_gradient:  # decouple/dergularize the L2 penalty from gradients
+                            prev_P.mul_(1.0 - lr * wd)
 
-                        prev_P.mul_(1.0 - lr * wd)
-
-                    new_P = prev_P.sub_(probe_G.add_(prev_G), alpha=lr / 2.0)
+                    m.add_(probe_G.sub_(prev_G), alpha=(1.0 - self.beta)/2.0)
+                    unbias_m = m / (1.0 - self.beta ** t)
+                    new_P = prev_P.sub_(unbias_m, alpha=lr)
 
             else:  # Per-coordinate bounce condition branch --- TODO: maybe computing full bounce and full non_bounce then using "torch.where()" is more efficient?
-                # Bouncing coordinates
-                w = self._get_convex_weights(prev_G[bounce_cond], probe_G[bounce_cond],)
                 new_P = torch.empty_like(probe_P)
+
+                # Non-bouncing coordinates
+                non_bounce = ~bounce_cond
+                if wd > 0.0:
+                    if not self._couple_gradient:
+                        prev_P[non_bounce] *= (1.0 - lr * wd)
+
+                m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_((1.0 - self.beta)/2.0)
+
+                unbias_m = m / (1.0 - self.beta ** t)
+                new_P[non_bounce] = prev_P[non_bounce].sub_(unbias_m[non_bounce], alpha=lr)
+
+                # Bouncing coordinates
+                w = self._get_convex_weights(m[bounce_cond], probe_G[bounce_cond],)
                 new_P[bounce_cond] = self._interpolate(
                         prev_P[bounce_cond],
-                        prev_G[bounce_cond],
+                        unbias_m[bounce_cond],
                         w,
                         wd,
                         lr,
                         self._couple_gradient,
                         )
 
-                # Non-bouncing coordinates
-                non_bounce = ~bounce_cond
-                if wd > 0.0:
-                    if self._couple_gradient:  # decouple the L2 penalty from gradients
-                        # Boolean indexing returns a *new* temporary copy (rather than views)
-                        # Achieve true in-place op via augmented assignment
-                        prev_G[non_bounce] -= prev_P[non_bounce].mul_(wd)
-                        probe_G[non_bounce] -= probe_P[non_bounce].mul_(wd)
-
-                    prev_P[non_bounce] *= (1.0 - lr * wd)
-
-                new_P[non_bounce] = prev_P[non_bounce].sub_(probe_G[non_bounce].add_(prev_G[non_bounce]).mul_(lr / 2.0))
+                # Restart momentum state
+                m[bounce_cond] *= 0.0
+                t[bounce_cond] *= 0.0
 
             self._assign_vec_to_params(new_P, params)
-
-        self.t += 1
 
         return loss
 
@@ -351,13 +378,6 @@ class DGRF(BGD):
     _interpolate = full_decay_interpolation  # F
 
 
-class CGRF(BGD):
-    _couple_gradient = True  # C
-    _bounce_condition = global_bounce  # G
-    _get_convex_weights = ratio_convex_weights  # R
-    _interpolate = full_decay_interpolation  # F
-
-
 class DGSS(BGD):
     _couple_gradient = False  # D
     _bounce_condition = global_bounce  # G
@@ -374,13 +394,6 @@ class CGSS(BGD):
 
 class DGSF(BGD):
     _couple_gradient = False  # D
-    _bounce_condition = global_bounce  # G
-    _get_convex_weights = sigmoid_convex_weights  # S
-    _interpolate = full_decay_interpolation  # F
-
-
-class CGSF(BGD):
-    _couple_gradient = True  # C
     _bounce_condition = global_bounce  # G
     _get_convex_weights = sigmoid_convex_weights  # S
     _interpolate = full_decay_interpolation  # F
@@ -407,56 +420,14 @@ class DPRF(BGD):
     _interpolate = full_decay_interpolation  # F
 
 
-class CPRF(BGD):
-    _couple_gradient = True  # C
-    _bounce_condition = per_coordinate_bounce  # P
-    _get_convex_weights = ratio_convex_weights  # R
-    _interpolate = full_decay_interpolation  # F
-
-
-class DPSS(BGD):
-    _couple_gradient = False  # D
-    _bounce_condition = per_coordinate_bounce  # P
-    _get_convex_weights = sigmoid_convex_weights  # S
-    _interpolate = scaled_decay_interpolation  # S
-
-
-class CPSS(BGD):
-    _couple_gradient = True  # C
-    _bounce_condition = per_coordinate_bounce  # P
-    _get_convex_weights = sigmoid_convex_weights  # S
-    _interpolate = scaled_decay_interpolation  # S
-
-
-class DPSF(BGD):
-    _couple_gradient = False  # D
-    _bounce_condition = per_coordinate_bounce  # P
-    _get_convex_weights = sigmoid_convex_weights  # S
-    _interpolate = full_decay_interpolation  # F
-
-
-class CPSF(BGD):
-    _couple_gradient = True  # C
-    _bounce_condition = per_coordinate_bounce  # P
-    _get_convex_weights = sigmoid_convex_weights  # S
-    _interpolate = full_decay_interpolation  # F
-
-
 BGD_VARIANTS: tuple[type[BGD], ...] = (
     DGRS,
     CGRS,
     DGRF,
-    CGRF,
     DGSS,
     CGSS,
     DGSF,
-    CGSF,
     DPRS,
     CPRS,
     DPRF,
-    CPRF,
-    DPSS,
-    CPSS,
-    DPSF,
-    CPSF,
     )
