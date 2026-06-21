@@ -9,7 +9,7 @@ from torch.optim import Optimizer
 
 
 def global_bounce(G1: torch.Tensor, G2: torch.Tensor, tau: float = 0.0) -> torch.Tensor:
-    # "Global" per optimizer param group (not fully model-global)
+    # "Global" per optimizer param group (not truly model-global)
     return (G1 @ G2) < (-tau * G1.norm() * G2.norm())
 
 
@@ -39,7 +39,7 @@ def full_decay_interpolation(
     r"""
     Performs: :math:`\theta_{t+1} = (1 - \alpha \, \lambda) \theta_t - \alpha \, w \odot g_t`
 
-    ONLY applies to **decoupled** gradients approach! ==> Can't have CXXF variant
+    ONLY applies to **decoupled** gradients approach! ==> Can't have "CXXF" variant
     """
     if weight_decay > 0.0:
         prev_P.mul_(1 - weight_decay * learning_rate)
@@ -263,6 +263,7 @@ class BGD(Optimizer):
             group["prev_grad"].copy_(G)
 
             if self.absorb_gradient_first:
+                # Makes restarts more conservative because current gradient biases momentum toward alignment.
                 if self.EMA:
                     m.mul_(beta).add_(G, alpha=1.0 - beta)
                 else:
@@ -288,9 +289,9 @@ class BGD(Optimizer):
                 t.copy_(torch.where(mom_bounce_cond, 1.0, t))
                 if self.absorb_gradient_first:
                     if self.EMA:
-                         m.add_(torch.where(mom_bounce_cond, G * (1.0 - beta), m))
+                        m.add_(torch.where(mom_bounce_cond, G * (1.0 - beta), 0.0))
                     else:
-                        m.add_(torch.where(mom_bounce_cond, G, m))
+                        m.add_(torch.where(mom_bounce_cond, G, 0.0))
 
             if not self.absorb_gradient_first:
                 if self.EMA:
@@ -339,7 +340,7 @@ class BGD(Optimizer):
                     t.zero_()
                 else:
                     if wd > 0.0:
-                        if not self._couple_gradient:  # decouple/dergularize the L2 penalty from gradients
+                        if not self._couple_gradient:
                             prev_P.mul_(1.0 - lr * wd)
 
                     if self.EMA:
