@@ -158,6 +158,7 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
     run = wandb.init(
+            project="bgd-tune-cifar10",
             job_type="train",
             config=dict(
                     model=model_name,
@@ -260,6 +261,21 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
     test_acc = eval_model(model, test_loader)
     run.summary["test_acc"] = test_acc
 
-    run.finish()
-
+    run.finish(exit_code=0)
     return 0
+
+
+if __name__ == "__main__":
+    # To run: $ CUDA_VISIBLE_DEVICES=0 uv run wandb agent --forward-signals <entity/project/sweep_id> &
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, default="./data")
+    parser.add_argument("--model_name", type=str, default="resnet18")
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--save_model", action="store_true")
+
+    args, unknown = parser.parse_known_args()  # W&B agent translates sweep config into command-line arguments, ignore them and use via "run.config"
+    raise SystemExit(main(**vars(args)))
