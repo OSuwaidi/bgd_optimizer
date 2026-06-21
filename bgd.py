@@ -173,6 +173,7 @@ class BGD(Optimizer):
     def _bounce_condition(
             G1: torch.Tensor, G2: torch.Tensor, tau: float = 0.0,
             ) -> torch.Tensor:
+        # True implies bounce
         raise NotImplementedError
 
     @staticmethod
@@ -273,18 +274,23 @@ class BGD(Optimizer):
                 # Global bounce condition branch
                 if mom_bounce_cond.item():
                     # Restart momentum state
-                    if self.EMA:
-                        m.copy_(G * (1.0 - beta))
-                        t.copy_(t.new_ones(t.size(0)))
-                    else:
-                        m.copy_(G)
+                    m.zero_()
+                    t.copy_(t.new_ones(t.size(0)))
+                    if self.absorb_gradient_first:
+                        if self.EMA:
+                            m.add_(G * (1.0 - beta))
+                        else:
+                            m.add_(G)
 
             else:  # Per-coordinate bounce condition branch
-                if self.EMA:
-                    m.copy_(torch.where(mom_bounce_cond, G * (1.0 - beta), m))
-                    t.copy_(torch.where(mom_bounce_cond, 1.0, t))
-                else:
-                    m.copy_(torch.where(mom_bounce_cond, G, m))
+                # Restart momentum state
+                m.copy_(torch.where(mom_bounce_cond, 0.0, m))
+                t.copy_(torch.where(mom_bounce_cond, 1.0, t))
+                if self.absorb_gradient_first:
+                    if self.EMA:
+                         m.add_(torch.where(mom_bounce_cond, G * (1.0 - beta), m))
+                    else:
+                        m.add_(torch.where(mom_bounce_cond, G, m))
 
             if not self.absorb_gradient_first:
                 if self.EMA:
