@@ -18,7 +18,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
-    parser.add_argument("--save_model", type=bool, default=False)
+    parser.add_argument("--save_model", action="store_true")
     args = parser.parse_args()
 
     # 1. Define the sweep configuration
@@ -47,8 +47,8 @@ if __name__ == "__main__":
             )
     print(f"Sweep ID: {sweep_id}")
 
-    wandb.agent(
-            sweep_id=sweep_id,
-            function=lambda: main(**args_dict),
-            project=PROJECT_NAME,
-            )
+    # wandb.agent(
+    #         sweep_id=sweep_id,
+    #         function=lambda: main(**args_dict),
+    #         project=PROJECT_NAME,
+    #         )
