@@ -261,3 +261,5 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
     run.summary["test_acc"] = test_acc
 
     run.finish()
+
+    return 0
