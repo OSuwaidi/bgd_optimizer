@@ -396,6 +396,7 @@ class BGD(Optimizer):
 #   interp:   F = full-decay, S = scaled-decay
 # Slot order is fixed
 
+# NOTE: Coupled gradients are only compatible with scaled decay interpolation.
 
 class DGSS(BGD):
     _couple_gradient = False  # D
@@ -439,6 +440,50 @@ class DPRF(BGD):
     _interpolate = staticmethod(full_decay_interpolation)  # F
 
 
+class DPSF(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = staticmethod(per_coordinate_bounce)  # P
+    _get_convex_weights = staticmethod(sigmoid_convex_weights)  # S
+    _interpolate = staticmethod(full_decay_interpolation)  # F
+
+
+class DPSS(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = staticmethod(per_coordinate_bounce)  # P
+    _get_convex_weights = staticmethod(sigmoid_convex_weights)  # S
+    _interpolate = staticmethod(scaled_decay_interpolation)  # S
+
+
+class CPSS(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = staticmethod(per_coordinate_bounce)  # P
+    _get_convex_weights = staticmethod(sigmoid_convex_weights)  # S
+    _interpolate = staticmethod(scaled_decay_interpolation)  # S
+
+
+class DGRF(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = staticmethod(global_bounce)  # G
+    _get_convex_weights = staticmethod(ratio_convex_weights)  # R
+    _interpolate = staticmethod(full_decay_interpolation)  # F
+
+
+class DGRS(BGD):
+    _couple_gradient = False  # D
+    _bounce_condition = staticmethod(global_bounce)  # G
+    _get_convex_weights = staticmethod(ratio_convex_weights)  # R
+    _interpolate = staticmethod(scaled_decay_interpolation)  # S
+
+
+class CGRS(BGD):
+    _couple_gradient = True  # C
+    _bounce_condition = staticmethod(global_bounce)  # G
+    _get_convex_weights = staticmethod(ratio_convex_weights)  # R
+    _interpolate = staticmethod(scaled_decay_interpolation)  # S
+
+
+
+
 BGD_VARIANTS: tuple[type[BGD], ...] = (
     DGSS,
     CGSS,
@@ -446,4 +491,10 @@ BGD_VARIANTS: tuple[type[BGD], ...] = (
     DPRS,
     CPRS,
     DPRF,
+    DPSF,
+    DPSS,
+    CPSS,
+    DGRF,
+    DGRS,
+    CGRS,
     )
