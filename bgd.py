@@ -292,7 +292,7 @@ class BGD(Optimizer):
                 else:
                     m.mul_(beta).add_(G)
 
-            unbias_m = m / (1.0 - beta ** t)
+            unbias_m = m / (1.0 - beta ** t) if self.EMA else m
 
             probe_P = P.sub_(unbias_m, alpha=lr)
             self._assign_vec_to_params(probe_P, params)  # update current model's params to probe params
@@ -324,7 +324,7 @@ class BGD(Optimizer):
             if bounce_cond.ndim == 0:
                 # Global bounce condition branch
                 if bounce_cond.item():
-                    unbias_m = m / (1.0 - beta ** t)
+                    unbias_m = m / (1.0 - beta ** t) if self.EMA else m
                     w = self._get_convex_weights(unbias_m, probe_G, )
                     new_P = self._interpolate(prev_P, unbias_m, w, wd, lr, self._couple_gradient)
 
@@ -341,7 +341,7 @@ class BGD(Optimizer):
                     else:
                         m.add_(probe_G.sub_(prev_G), alpha=0.5)
 
-                    unbias_m = m / (1.0 - beta ** t)
+                    unbias_m = m / (1.0 - beta ** t) if self.EMA else m
 
                     new_P = prev_P.sub_(unbias_m, alpha=lr)
 
@@ -359,7 +359,7 @@ class BGD(Optimizer):
                 else:
                     m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_(0.5)
 
-                unbias_m = m / (1.0 - beta ** t)
+                unbias_m = m / (1.0 - beta ** t) if self.EMA else m
                 new_P[non_bounce] = prev_P[non_bounce].sub_(unbias_m[non_bounce], alpha=lr)
 
                 # Bouncing coordinates
