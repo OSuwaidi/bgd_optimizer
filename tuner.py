@@ -71,12 +71,12 @@ def train_val(model, opt, epochs, train_loader, val_loader, run, lr_scheduler=No
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            best_train_loss = epoch_loss/n_samples
+            best_train_loss = epoch_loss / n_samples
             best_model = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             best_val_epoch = epoch
 
         run.log(dict(
-                train_loss=round(epoch_loss/n_samples, 2),
+                train_loss=round(epoch_loss / n_samples, 2),
                 val_acc=val_acc
                 ), step=epoch)
 
@@ -116,66 +116,66 @@ class TransformDataset(Dataset):
         return self.T(x), y
 
 
-def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int = 100, batch_size: int = 256, weight_decay: float = 1e-5):
+def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int = 100, batch_size: int = 256, weight_decay: float = 1e-5, save_model: bool = False):
     train_transform = v2.Compose(
-        [
-            v2.PILToTensor(),
-            v2.RandomCrop(32, padding=4, padding_mode="reflect"),
-            v2.RandomHorizontalFlip(p=0.5),
-            v2.RandAugment(num_ops=2, magnitude=9),
-            v2.ToDtype(torch.float32, scale=True),
-            v2.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
-            v2.RandomErasing(p=0.1, scale=(0.02, 0.33), ratio=(0.3, 3.3)),
-        ]
-    )
+            [
+                v2.PILToTensor(),
+                v2.RandomCrop(32, padding=4, padding_mode="reflect"),
+                v2.RandomHorizontalFlip(p=0.5),
+                v2.RandAugment(num_ops=2, magnitude=9),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
+                v2.RandomErasing(p=0.1, scale=(0.02, 0.33), ratio=(0.3, 3.3)),
+                ]
+            )
 
     eval_transform = v2.Compose(
-        [
-            v2.PILToTensor(),
-            v2.ToDtype(torch.float32, scale=True),
-            v2.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
-        ]
-    )
+            [
+                v2.PILToTensor(),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
+                ]
+            )
 
     raw_ds = datasets.CIFAR10(
-        root=data_dir,
-        train=True,
-        download=True,
-    )
+            root=data_dir,
+            train=True,
+            download=True,
+            )
     indices = list(range(len(raw_ds)))
 
     train_size = int(0.85 * len(raw_ds))  # 42,500
 
     test_ds = datasets.CIFAR10(
-        root=data_dir,
-        train=False,
-        download=True,
-        transform=eval_transform,
-    )
+            root=data_dir,
+            train=False,
+            download=True,
+            transform=eval_transform,
+            )
     test_loader = DataLoader(
-        test_ds, batch_size=batch_size, shuffle=False, num_workers=0, persistent_workers=False
-    )
+            test_ds, batch_size=batch_size, shuffle=False, num_workers=0, persistent_workers=False
+            )
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
     run = wandb.init(
-        job_type="train",
-        config=dict(
-            model=model_name,
-            epochs=epochs,
-            batch_size=batch_size,
-            weight_decay=weight_decay,
-        ),
-    )  # individual runs are forced into the parent sweep's project name
+            job_type="train",
+            config=dict(
+                    model=model_name,
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    weight_decay=weight_decay,
+                    ),
+            tags=["momentum"],
+            )  # individual runs are forced into the parent sweep's project name
 
     config = run.config
     bgd_var: str = config.variant
     ema = config.ema
-    normalize = config.normalize
     absorb = config.absorb
     lr = config.lr
     seed = config.seed
 
-    run.name = f"{bgd_var}_ema:{ema}_norm:{normalize}_absorb:{absorb}_{lr}_{seed}_{model_name}"
+    run.name = f"{bgd_var}_ema:{ema}_absorb:{absorb}_{lr}_{seed}_{model_name}"
 
     set_seed(seed)
 
@@ -204,56 +204,57 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
 
     val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True)
 
-    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema, absorb_gradient_first=absorb, normalize_momentum=normalize)
+    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema, absorb_gradient_first=absorb)
 
     steps_per_epoch = len(train_loader)
     total_steps = steps_per_epoch * epochs
     warmup_steps = steps_per_epoch * WARMUP_EPOCHS
 
     warmup_scheduler = LinearLR(
-        optimizer,
-        start_factor=0.01,
-        end_factor=1.0,
-        total_iters=warmup_steps
-    )
+            optimizer,
+            start_factor=0.01,
+            end_factor=1.0,
+            total_iters=warmup_steps
+            )
 
     cosine_scheduler = CosineAnnealingLR(
-        optimizer,
-        T_max=(total_steps - warmup_steps),
-        eta_min=1e-4
-    )
+            optimizer,
+            T_max=(total_steps - warmup_steps),
+            eta_min=1e-4
+            )
 
     # Combine schedulers sequentially at the iteration level
     scheduler = SequentialLR(
-        optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[warmup_steps]
-    )
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_steps]
+            )
 
     best_model = train_val(model, optimizer, epochs, train_loader, val_loader, run, lr_scheduler=scheduler)
 
-    artifact = wandb.Artifact(
-        name=f"{run.id}-best-model",
-        type="model",
-        metadata={
-            "variant": bgd_var,
-            "ema": ema,
-            "absorb": absorb,
-            "lr": lr,
-            "seed": seed,
-        },
-    )
-
-    with artifact.new_file("best_model.pt", mode="wb") as f:
-        torch.save(
-                {
-                    "model_state_dict": best_model,
-                    "config": dict(config),
+    if save_model:
+        artifact = wandb.Artifact(
+                name=f"{run.id}-best-model",
+                type="model",
+                metadata={
+                    "variant": bgd_var,
+                    "ema": ema,
+                    "absorb": absorb,
+                    "lr": lr,
+                    "seed": seed,
                     },
-                f,
                 )
 
-    run.log_artifact(artifact, aliases=["best"])
+        with artifact.new_file("best_model.pt", mode="wb") as f:
+            torch.save(
+                    {
+                        "model_state_dict": best_model,
+                        "config": dict(config),
+                        },
+                    f,
+                    )
+
+        run.log_artifact(artifact, aliases=["best"])
 
     model.load_state_dict(best_model)
     test_acc = eval_model(model, test_loader)
