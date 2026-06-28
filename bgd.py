@@ -89,7 +89,6 @@ class BGD(Optimizer):
             EMA: bool = True,
             weight_decay: float = 0.0,
             tau: float = 0.0,
-            absorb_gradient_first: bool = True,
             ) -> None:
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
@@ -102,7 +101,6 @@ class BGD(Optimizer):
 
         self.EMA = EMA
         self.tau = tau
-        self.absorb_gradient_first = absorb_gradient_first
         self.param_groups: list[dict[str, Any]]
 
         decay_params: list[torch.nn.Parameter] = []
@@ -255,49 +253,16 @@ class BGD(Optimizer):
             P = self._params_to_vec(params)
             G = self._param_grads_to_vec(params)
 
-            if wd > 0.0:
-                if self._couple_gradient:
-                    G.add_(P, alpha=wd)  # coupled weight decay ==> regularized gradient
+            if wd > 0.0 and self._couple_gradient:
+                G.add_(P, alpha=wd)  # coupled weight decay ==> regularized gradient
 
             group["prev_params"].copy_(P)
             group["prev_grad"].copy_(G)
 
-            if self.absorb_gradient_first:
-                # Makes restarts more conservative because current gradient biases momentum toward alignment.
-                if self.EMA:
-                    m.mul_(beta).add_(G, alpha=1.0 - beta)
-                else:
-                    m.mul_(beta).add_(G)
-
-            # mom_bounce_cond = self._bounce_condition(G, m, self.tau)
-
-            # if mom_bounce_cond.ndim == 0:
-            #     # Global bounce condition branch
-            #     if mom_bounce_cond.item():
-            #         # Restart momentum state
-            #         m.zero_()
-            #         t.copy_(t.new_ones(t.size(0)))
-            #         if self.absorb_gradient_first:
-            #             if self.EMA:
-            #                 m.add_(G * (1.0 - beta))
-            #             else:
-            #                 m.add_(G)
-
-            # else:  # Per-coordinate bounce condition branch
-            #     # Restart momentum state
-            #     m.copy_(torch.where(mom_bounce_cond, 0.0, m))
-            #     t.copy_(torch.where(mom_bounce_cond, 1.0, t))
-            #     if self.absorb_gradient_first:
-            #         if self.EMA:
-            #             m.add_(torch.where(mom_bounce_cond, G * (1.0 - beta), 0.0))
-            #         else:
-            #             m.add_(torch.where(mom_bounce_cond, G, 0.0))
-
-            # if not self.absorb_gradient_first:
-            #     if self.EMA:
-            #         m.mul_(beta).add_(G, alpha=1.0 - beta)
-            #     else:
-            #         m.mul_(beta).add_(G)
+            if self.EMA:
+                m.lerp_(G, alpha=1.0 - beta)
+            else:
+                m.mul_(beta).add_(G)
 
             unbias_m = m / (1.0 - beta ** t) if self.EMA else m
 
@@ -322,17 +287,15 @@ class BGD(Optimizer):
             probe_P = self._params_to_vec(params)
             probe_G = self._param_grads_to_vec(params)
 
-            if wd > 0.0:
-                if self._couple_gradient:
-                    probe_G.add_(probe_P, alpha=wd)
+            if wd > 0.0 and self._couple_gradient:
+                probe_G.add_(probe_P, alpha=wd)
 
-            bounce_cond = self._bounce_condition(m, probe_G, self.tau)
+            bounce_cond = self._bounce_condition(prev_G, probe_G, self.tau)
 
             if bounce_cond.ndim == 0:
                 # Global bounce condition branch
                 if bounce_cond.item():
                     unbias_m = m / (1.0 - beta ** t) if self.EMA else m
-                    # w = self._get_convex_weights(unbias_m, probe_G, )
                     w = self._get_convex_weights(prev_G, probe_G, )
                     new_P = self._interpolate(prev_P, unbias_m, w, wd, lr, self._couple_gradient)
 
@@ -344,15 +307,12 @@ class BGD(Optimizer):
                         if not self._couple_gradient:
                             prev_P.mul_(1.0 - lr * wd)
 
-                    average_G = (prev_G + probe_G) / 2
+                    average_G = (prev_G + probe_G) / 2.0
                     if self.EMA:
                         m.add_(probe_G.sub_(prev_G), alpha=(1.0 - beta) / 2.0)
                     else:
                         m.add_(probe_G.sub_(prev_G), alpha=0.5)
 
-                    unbias_m = m / (1.0 - beta ** t) if self.EMA else m
-
-                    # new_P = prev_P.sub_(unbias_m, alpha=lr)
                     new_P = prev_P.sub_(average_G, alpha=lr)
 
             else:  # Per-coordinate bounce condition branch --- TODO: maybe computing full bounce and full non_bounce then using "torch.where()" is more efficient?
@@ -364,18 +324,16 @@ class BGD(Optimizer):
                     if not self._couple_gradient:
                         prev_P[non_bounce] *= (1.0 - lr * wd)
 
-                average_G = (prev_G[non_bounce] + probe_G[non_bounce]) / 2
+                average_G = (prev_G[non_bounce] + probe_G[non_bounce]) / 2.0
                 if self.EMA:
                     m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_((1.0 - beta) / 2.0)
                 else:
                     m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_(0.5)
 
-                unbias_m = m / (1.0 - beta ** t) if self.EMA else m
-                # new_P[non_bounce] = prev_P[non_bounce].sub_(unbias_m[non_bounce], alpha=lr)
                 new_P[non_bounce] = prev_P[non_bounce].sub_(average_G, alpha=lr)
 
                 # Bouncing coordinates
-                # w = self._get_convex_weights(unbias_m[bounce_cond], probe_G[bounce_cond], )
+                unbias_m = m / (1.0 - beta ** t) if self.EMA else m
                 w = self._get_convex_weights(prev_G[bounce_cond], probe_G[bounce_cond], )
                 new_P[bounce_cond] = self._interpolate(
                         prev_P[bounce_cond],
