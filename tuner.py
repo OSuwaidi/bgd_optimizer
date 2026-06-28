@@ -21,7 +21,7 @@ import timm
 # -------------------------
 DEVICE = "cuda"
 WARMUP_EPOCHS = 5
-NUM_WORKERS = cpu_count() // 3
+NUM_WORKERS = cpu_count() // 4
 NAME_2_VARIANT: dict[str, type[BGD]] = {bgd_var.__name__: bgd_var for bgd_var in BGD_VARIANTS}
 
 
@@ -153,7 +153,7 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
             transform=eval_transform,
             )
     test_loader = DataLoader(
-            test_ds, batch_size=batch_size, shuffle=False, num_workers=0, persistent_workers=False
+            test_ds, batch_size=batch_size, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True,
             )
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
@@ -166,17 +166,16 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
                     batch_size=batch_size,
                     weight_decay=weight_decay,
                     ),
-            tags=["momentum"],
+            tags=["cl_momentum"],
             )  # individual runs are forced into the parent sweep's project name
 
     config = run.config
     bgd_var: str = config.variant
     ema = config.ema
-    absorb = config.absorb
     lr = config.lr
     seed = config.seed
 
-    run.name = f"{bgd_var}_ema:{ema}_absorb:{absorb}_{lr}_{seed}_{model_name}"
+    run.name = f"{bgd_var}_ema:{ema}_CL_{lr}_{seed}_{model_name}"
 
     set_seed(seed)
 
@@ -203,9 +202,9 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
                               worker_init_fn=set_worker_seed,
                               generator=torch.Generator().manual_seed(seed))
 
-    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=4, persistent_workers=False, pin_memory=True)
 
-    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema, absorb_gradient_first=absorb)
+    optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema)
 
     steps_per_epoch = len(train_loader)
     total_steps = steps_per_epoch * epochs
@@ -240,7 +239,6 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
                 metadata={
                     "variant": bgd_var,
                     "ema": ema,
-                    "absorb": absorb,
                     "lr": lr,
                     "seed": seed,
                     },

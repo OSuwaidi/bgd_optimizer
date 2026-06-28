@@ -21,7 +21,6 @@ if __name__ == "__main__":
         "parameters": {
             "variant": {"values": variant_names},
             "ema": {"values": (True, False)},
-            "absorb": {"values": (True, False)},
             "lr": {"values": LRs},
             "seed": {"values": SEEDS},
             },
