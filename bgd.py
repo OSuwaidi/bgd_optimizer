@@ -260,7 +260,7 @@ class BGD(Optimizer):
             group["prev_grad"].copy_(G)
 
             if self.EMA:
-                m.lerp_(G, alpha=1.0 - beta)
+                m.lerp_(G, weight=1.0 - beta)
             else:
                 m.mul_(beta).add_(G)
 
