@@ -255,9 +255,8 @@ class BGD(Optimizer):
             P = self._params_to_vec(params)
             G = self._param_grads_to_vec(params)
 
-            if wd > 0.0:
-                if self._couple_gradient:
-                    G.add_(P, alpha=wd)  # coupled weight decay ==> regularized gradient
+            if wd > 0.0 and self._couple_gradient:
+                G.add_(P, alpha=wd)  # coupled weight decay ==> regularized gradient
 
             group["prev_params"].copy_(P)
             group["prev_grad"].copy_(G)
@@ -322,9 +321,8 @@ class BGD(Optimizer):
             probe_P = self._params_to_vec(params)
             probe_G = self._param_grads_to_vec(params)
 
-            if wd > 0.0:
-                if self._couple_gradient:
-                    probe_G.add_(probe_P, alpha=wd)
+            if wd > 0.0 and self._couple_gradient:
+                probe_G.add_(probe_P, alpha=wd)
 
             bounce_cond = self._bounce_condition(m, probe_G, self.tau)
 
@@ -339,9 +337,8 @@ class BGD(Optimizer):
                     m.zero_()
                     t.zero_()
                 else:
-                    if wd > 0.0:
-                        if not self._couple_gradient:
-                            prev_P.mul_(1.0 - lr * wd)
+                    if wd > 0.0 and not self._couple_gradient:
+                        prev_P.mul_(1.0 - lr * wd)
 
                     if self.EMA:
                         m.add_(probe_G.sub_(prev_G), alpha=(1.0 - beta) / 2.0)
@@ -357,9 +354,8 @@ class BGD(Optimizer):
 
                 # Non-bouncing coordinates
                 non_bounce = ~bounce_cond
-                if wd > 0.0:
-                    if not self._couple_gradient:
-                        prev_P[non_bounce] *= (1.0 - lr * wd)
+                if wd > 0.0 and not self._couple_gradient:
+                    prev_P[non_bounce] *= (1.0 - lr * wd)
 
                 if self.EMA:
                     m[non_bounce] += probe_G[non_bounce].sub_(prev_G[non_bounce]).mul_((1.0 - beta) / 2.0)
