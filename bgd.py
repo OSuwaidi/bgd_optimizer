@@ -265,7 +265,7 @@ class BGD(Optimizer):
             if self.absorb_gradient_first:
                 # Makes restarts more conservative because current gradient biases momentum toward alignment.
                 if self.EMA:
-                    m.mul_(beta).add_(G, alpha=1.0 - beta)
+                    m.lerp_(G, weight=1.0 - beta)
                 else:
                     m.mul_(beta).add_(G)
 
@@ -295,7 +295,7 @@ class BGD(Optimizer):
 
             if not self.absorb_gradient_first:
                 if self.EMA:
-                    m.mul_(beta).add_(G, alpha=1.0 - beta)
+                    m.lerp_(G, weight=1.0 - beta)
                 else:
                     m.mul_(beta).add_(G)
 
