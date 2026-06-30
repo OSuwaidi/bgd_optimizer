@@ -21,7 +21,7 @@ import timm
 # -------------------------
 DEVICE = "cuda"
 WARMUP_EPOCHS = 5
-NUM_WORKERS = cpu_count() // 3
+NUM_WORKERS = cpu_count() // 4
 NAME_2_VARIANT: dict[str, type[BGD]] = {bgd_var.__name__: bgd_var for bgd_var in BGD_VARIANTS}
 
 
@@ -153,7 +153,7 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
             transform=eval_transform,
             )
     test_loader = DataLoader(
-            test_ds, batch_size=batch_size, shuffle=False, num_workers=0, persistent_workers=False
+            test_ds, batch_size=batch_size, shuffle=False, num_workers=1, persistent_workers=False, pin_memory=True,
             )
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
@@ -203,7 +203,7 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
                               worker_init_fn=set_worker_seed,
                               generator=torch.Generator().manual_seed(seed))
 
-    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=1, persistent_workers=False, pin_memory=True)
 
     optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema, absorb_gradient_first=absorb)
 
