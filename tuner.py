@@ -153,7 +153,7 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
             transform=eval_transform,
             )
     test_loader = DataLoader(
-            test_ds, batch_size=batch_size, shuffle=False, num_workers=0, persistent_workers=False, pin_memory=True,
+            test_ds, batch_size=batch_size, shuffle=False, num_workers=1, persistent_workers=False, pin_memory=True,
             )
 
     # Start W&B Sweeps (W&B Sweeps injects the configs automatically):
@@ -165,6 +165,7 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
                     epochs=epochs,
                     batch_size=batch_size,
                     weight_decay=weight_decay,
+                    style="CL",
                     ),
             tags=["cl_momentum"],
             )  # individual runs are forced into the parent sweep's project name
@@ -202,7 +203,7 @@ def main(*, data_dir: str = "./data", model_name: str = "resnet18", epochs: int 
                               worker_init_fn=set_worker_seed,
                               generator=torch.Generator().manual_seed(seed))
 
-    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=4, persistent_workers=False, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=500, shuffle=False, num_workers=1, persistent_workers=False, pin_memory=True)
 
     optimizer = NAME_2_VARIANT[bgd_var](model.parameters(), lr=lr, weight_decay=weight_decay, EMA=ema)
 

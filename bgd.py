@@ -303,8 +303,7 @@ class BGD(Optimizer):
                     m.zero_()
                     t.zero_()
                 else:
-                    if wd > 0.0:
-                        if not self._couple_gradient:
+                    if wd > 0.0 and not self._couple_gradient:
                             prev_P.mul_(1.0 - lr * wd)
 
                     average_G = (prev_G + probe_G) / 2.0
@@ -320,8 +319,7 @@ class BGD(Optimizer):
 
                 # Non-bouncing coordinates
                 non_bounce = ~bounce_cond
-                if wd > 0.0:
-                    if not self._couple_gradient:
+                if wd > 0.0 and not self._couple_gradient:
                         prev_P[non_bounce] *= (1.0 - lr * wd)
 
                 average_G = (prev_G[non_bounce] + probe_G[non_bounce]) / 2.0
