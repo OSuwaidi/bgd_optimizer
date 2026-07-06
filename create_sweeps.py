@@ -1,7 +1,7 @@
 import wandb
 from bgd import BGD_VARIANTS
 
-# To run: $uv run create_sweeps.py --> prints <entity/project/sweep_id>
+# To run: $ uv run create_sweeps.py --> prints <entity/project/sweep_id>
 
 variant_names: list[str] = [bgd_var.__name__ for bgd_var in BGD_VARIANTS]
 PROJECT_NAME = "bgd-tune-cifar10"
